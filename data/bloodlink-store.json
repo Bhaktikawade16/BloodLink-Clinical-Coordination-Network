@@ -1,0 +1,344 @@
+{
+  "donors": [
+    {
+      "donor_id": 4,
+      "name": "Aarav Sharma",
+      "phone": "9876543210",
+      "city": "Pune",
+      "blood_group": "AB+",
+      "eligibility_status": "eligible",
+      "verification_status": "verified",
+      "last_donation_date": null,
+      "email": "aarav@example.com",
+      "age": 28,
+      "gender": "Male",
+      "area": "",
+      "state": "Maharashtra",
+      "donation_count": 0,
+      "is_available": false,
+      "available_for_emergency": true,
+      "history": []
+    },
+    {
+      "donor_id": 1,
+      "name": "Test User",
+      "phone": "9999999999",
+      "city": "Pune",
+      "blood_group": "O+",
+      "eligibility_status": "pending_review",
+      "verification_status": "unverified",
+      "last_donation_date": "2026-06-10T00:00:00.000Z",
+      "is_available": true,
+      "available_for_emergency": true,
+      "donation_count": 1
+    },
+    {
+      "donor_id": 2,
+      "name": "Priya Patel",
+      "phone": "9822012345",
+      "city": "Pune",
+      "blood_group": "O+",
+      "eligibility_status": "pending_review",
+      "verification_status": "unverified",
+      "last_donation_date": null,
+      "is_available": true,
+      "available_for_emergency": true,
+      "donation_count": 0
+    },
+    {
+      "donor_id": 3,
+      "name": "xyz",
+      "phone": "9999888877",
+      "city": "Pune",
+      "blood_group": "B+",
+      "eligibility_status": "pending_review",
+      "verification_status": "unverified",
+      "last_donation_date": null,
+      "is_available": true,
+      "available_for_emergency": true,
+      "donation_count": 0
+    }
+  ],
+  "hospitals": [
+    {
+      "hospital_id": 4,
+      "user_id": 14,
+      "hospital_name": "Apollo Multi-Speciality",
+      "registration_number": "MH-HOSP-2024-999",
+      "address": "",
+      "verification_status": "verified",
+      "contact_person": "",
+      "email": "",
+      "phone": "",
+      "city": "Pune",
+      "state": "Maharashtra",
+      "licence_document_name": "",
+      "created_at": "2026-09-10T05:34:06.762Z",
+      "verified_at": "2026-09-10T05:34:21.877Z"
+    },
+    {
+      "hospital_id": 1,
+      "user_id": 2,
+      "hospital_name": "Ruby Hall Clinic",
+      "registration_number": "MH-HOSP-2024-001",
+      "address": "Sassoon Road, Pune",
+      "verification_status": "unverified"
+    },
+    {
+      "hospital_id": 2,
+      "user_id": 6,
+      "hospital_name": "Test Hosp",
+      "registration_number": "REG123",
+      "address": "Pune",
+      "verification_status": "unverified"
+    },
+    {
+      "hospital_id": 3,
+      "user_id": 13,
+      "hospital_name": "BhartiHospital",
+      "registration_number": "MED-LIC-1234-12345-C",
+      "address": "shivaji nagar",
+      "verification_status": "unverified"
+    }
+  ],
+  "bloodBanks": [
+    {
+      "blood_bank_id": 3,
+      "user_id": 23,
+      "bank_name": "Red Cross Blood Centre",
+      "license_number": "MH-BB-2024-888",
+      "address": "",
+      "verification_status": "verified",
+      "contact_person": "",
+      "email": "",
+      "phone": "",
+      "city": "Pune",
+      "state": "Maharashtra",
+      "licence_document_name": "",
+      "created_at": "2026-09-10T05:34:06.778Z",
+      "verified_at": "2026-09-10T05:34:21.893Z"
+    },
+    {
+      "blood_bank_id": 1,
+      "user_id": 3,
+      "bank_name": "Sahyadri Blood Bank",
+      "license_number": "MH-BB-2024-045",
+      "address": "FC Road, Pune",
+      "verification_status": "unverified"
+    },
+    {
+      "blood_bank_id": 2,
+      "user_id": 8,
+      "bank_name": "Test Bank",
+      "license_number": "LIC123",
+      "address": "Pune",
+      "verification_status": "unverified"
+    }
+  ],
+  "camps": [
+    {
+      "camp_id": 1,
+      "organiser_id": 3,
+      "blood_bank_id": 1,
+      "location": "FC Road Community Hall, Pune",
+      "latitude": "18.520400",
+      "longitude": "73.856700",
+      "camp_date": "2026-09-15T00:00:00.000Z",
+      "start_time": "10:00:00",
+      "end_time": "16:00:00",
+      "capacity": 50,
+      "required_blood_group": "O+, B-, AB+",
+      "status": "upcoming",
+      "partner_blood_bank": "Sahyadri Blood Bank",
+      "registered_count": 1
+    },
+    {
+      "camp_id": 2,
+      "organiser_id": 3,
+      "blood_bank_id": 1,
+      "location": "Kothrud Hall, Pune",
+      "latitude": "18.507400",
+      "longitude": "73.807700",
+      "camp_date": "2026-09-20T00:00:00.000Z",
+      "start_time": "09:00:00",
+      "end_time": "15:00:00",
+      "capacity": 100,
+      "required_blood_group": "O+, A+, B+",
+      "status": "upcoming",
+      "partner_blood_bank": "Sahyadri Blood Bank"
+    }
+  ],
+  "inventory": [
+    {
+      "inventory_id": 2,
+      "bank_name": "Sahyadri Blood Bank",
+      "blood_group": "O-",
+      "component": "whole_blood",
+      "units_available": 4,
+      "units_reserved": 0,
+      "expire_date": "2026-10-15",
+      "unit_id_str": "UNIT-92113",
+      "volume": 450,
+      "collection_date": "2026-09-10",
+      "status": "Available"
+    },
+    {
+      "inventory_id": 1,
+      "bank_name": "Sahyadri Blood Bank",
+      "blood_group": "O+",
+      "component": "whole_blood",
+      "units_available": 12,
+      "units_reserved": 2,
+      "expire_date": "2026-10-05T00:00:00.000Z"
+    }
+  ],
+  "bloodRequests": [
+    {
+      "request_id": 5,
+      "request_user_id": 2,
+      "hospital_id": 1,
+      "patient_name": "Rahul Verma",
+      "blood_group": "A+",
+      "component": "whole_blood",
+      "units_required": 3,
+      "urgency_level": "critical",
+      "required_by": "2026-09-11",
+      "location": "Ruby Hall Emergency Ward",
+      "latitude": "18.5204",
+      "longitude": "73.8567",
+      "verification_status": "verified",
+      "request_status": "fulfilled",
+      "created_at": "2026-09-10T05:34:12.274Z",
+      "requested_by_name": "Duty Medical Officer",
+      "hospital_name": "Ruby Hall Clinic",
+      "patient_diagnosis": "Acute blood loss",
+      "assigned_blood_bank_id": "BANK-1",
+      "assigned_blood_bank_name": "Sahyadri Blood Bank",
+      "delivery_status": "Supplied",
+      "allocated_units": 3,
+      "tracking_number": "TRK-COLD-998811"
+    },
+    {
+      "request_id": 4,
+      "request_user_id": 2,
+      "hospital_id": 1,
+      "patient_name": "Test Fix",
+      "blood_group": "B+",
+      "component": "whole_blood",
+      "units_required": 2,
+      "urgency_level": "urgent",
+      "required_by": "2026-09-15T12:00:00.000Z",
+      "location": "Ruby Hall Clinic",
+      "latitude": "18.530000",
+      "longitude": "73.870000",
+      "verification_status": "pending_verification",
+      "request_status": "searching",
+      "created_at": "2026-09-10T03:00:27.000Z",
+      "requested_by_name": "Ruby Hall Clinic Admin",
+      "hospital_name": "Ruby Hall Clinic"
+    },
+    {
+      "request_id": 3,
+      "request_user_id": 2,
+      "hospital_id": 1,
+      "patient_name": "Patient Test",
+      "blood_group": "O-",
+      "component": "platelets",
+      "units_required": 2,
+      "urgency_level": "critical",
+      "required_by": "2026-09-12T15:00:00.000Z",
+      "location": "Ruby Hall Clinic, Pune",
+      "latitude": "18.530800",
+      "longitude": "73.874700",
+      "verification_status": "pending_verification",
+      "request_status": "searching",
+      "created_at": "2026-09-10T02:30:35.000Z",
+      "requested_by_name": "Ruby Hall Clinic Admin",
+      "hospital_name": "Ruby Hall Clinic"
+    },
+    {
+      "request_id": 2,
+      "request_user_id": 2,
+      "hospital_id": 1,
+      "patient_name": "Patient B",
+      "blood_group": "O-",
+      "component": "platelets",
+      "units_required": 2,
+      "urgency_level": "critical",
+      "required_by": "2026-09-09T15:00:00.000Z",
+      "location": "Ruby Hall Clinic, Pune",
+      "latitude": "18.530800",
+      "longitude": "73.874700",
+      "verification_status": "pending_verification",
+      "request_status": "searching",
+      "created_at": "2026-09-08T18:13:48.000Z",
+      "requested_by_name": "Ruby Hall Clinic Admin",
+      "hospital_name": "Ruby Hall Clinic"
+    },
+    {
+      "request_id": 1,
+      "request_user_id": 2,
+      "hospital_id": 1,
+      "patient_name": "Patient A",
+      "blood_group": "O-",
+      "component": "platelets",
+      "units_required": 2,
+      "urgency_level": "critical",
+      "required_by": "2026-09-08T15:00:00.000Z",
+      "location": "Ruby Hall Clinic, Pune",
+      "latitude": "18.530800",
+      "longitude": "73.874700",
+      "verification_status": "pending_verification",
+      "request_status": "searching",
+      "created_at": "2026-09-08T07:57:06.000Z",
+      "requested_by_name": "Ruby Hall Clinic Admin",
+      "hospital_name": "Ruby Hall Clinic"
+    }
+  ],
+  "campAttendees": [
+    {
+      "camp_id": 1,
+      "camp_name": "FC Road Community Hall, Pune",
+      "donor_id": "DONOR-4",
+      "donor_name": "Aarav Sharma",
+      "donor_phone": "9876543210",
+      "donor_blood_group": "AB+",
+      "slot_time": "11:00 AM",
+      "id": "REG-1789018464982-251",
+      "registered_at": "2026-09-10T05:34:24.982Z"
+    }
+  ],
+  "organizers": [],
+  "notifications": [
+    {
+      "title": "Requisition Fulfilled & Delivered",
+      "message": "Ruby Hall Clinic confirmed receipt and cold-chain integrity for 3 units of A+",
+      "time": "Just now",
+      "type": "success",
+      "id": "NOTIF-1789018455086-433"
+    },
+    {
+      "title": "Cold-Chain Dispatched: A+",
+      "message": "Blood supply for Ruby Hall Clinic is in transit. Tracking #TRK-COLD-998811",
+      "time": "Just now",
+      "type": "info",
+      "id": "NOTIF-1789018455068-509"
+    },
+    {
+      "title": "Order Accepted by Sahyadri Blood Bank",
+      "message": "Sahyadri Blood Bank accepted requisition #5 for 3 units of A+",
+      "time": "Just now",
+      "type": "success",
+      "id": "NOTIF-1789018455051-535"
+    },
+    {
+      "title": "Emergency Requisition #5",
+      "message": "Ruby Hall Clinic requested 3 units of A+ (CRITICAL)",
+      "time": "Just now",
+      "is_urgent": true,
+      "type": "alert",
+      "id": "NOTIF-1789018452560-110"
+    }
+  ],
+  "updatedAt": "2026-09-10T05:34:24.982Z"
+}

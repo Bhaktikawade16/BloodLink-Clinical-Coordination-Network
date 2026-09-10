@@ -1,0 +1,6 @@
+{
+  "name": "BloodLink - Clinical Coordination Network",
+  "description": "A clinical healthcare network coordinating blood donors, hospitals, blood banks, and mobile donation camps in real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

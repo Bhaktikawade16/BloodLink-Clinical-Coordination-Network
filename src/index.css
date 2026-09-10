@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #f9f9ff;
+  --color-surface-dim: #d3daef;
+  --color-surface-bright: #f9f9ff;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f1f3ff;
+  --color-surface-container: #e9edff;
+  --color-surface-container-high: #e1e8fd;
+  --color-surface-container-highest: #dce2f7;
+  --color-on-surface: #141b2b;
+  --color-on-surface-variant: #5b403d;
+  --color-inverse-surface: #293040;
+  --color-inverse-on-surface: #edf0ff;
+  --color-outline: #8f6f6c;
+  --color-outline-variant: #e4beb9;
+  --color-surface-tint: #b91c1c;
+  --color-primary: #93000b;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #b91c1c;
+  --color-on-primary-container: #ffcdc7;
+  --color-inverse-primary: #ffb4ab;
+  --color-secondary: #006a63;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #99efe5;
+  --color-on-secondary-container: #006f67;
+  --color-tertiary: #6e3900;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #904d00;
+  --color-on-tertiary-container: #ffcfab;
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+  --color-primary-fixed: #ffdad6;
+  --color-primary-fixed-dim: #ffb4ab;
+  --color-on-primary-fixed: #410002;
+  --color-on-primary-fixed-variant: #93000b;
+  --color-secondary-fixed: #9cf2e8;
+  --color-secondary-fixed-dim: #80d5cb;
+  --color-on-secondary-fixed: #00201d;
+  --color-on-secondary-fixed-variant: #00504a;
+  --color-tertiary-fixed: #ffdcc3;
+  --color-tertiary-fixed-dim: #ffb77d;
+  --color-on-tertiary-fixed: #2f1500;
+  --color-on-tertiary-fixed-variant: #6e3900;
+  --color-background: #f9f9ff;
+  --color-on-background: #141b2b;
+  --color-surface-variant: #dce2f7;
+
+  --spacing-space-2xs: 0.25rem;
+  --spacing-space-xs: 0.5rem;
+  --spacing-space-sm: 0.75rem;
+  --spacing-space-md: 1rem;
+  --spacing-space-lg: 1.5rem;
+  --spacing-space-xl: 2rem;
+  --spacing-space-2xl: 3rem;
+  --spacing-space-3xl: 4rem;
+  --spacing-gutter-mobile: 1rem;
+  --spacing-gutter-desktop: 1.5rem;
+  --spacing-margin-mobile: 1.25rem;
+  --spacing-margin-desktop: 2.5rem;
+}
+
+@layer utilities {
+  .font-display-lg {
+    font-family: 'Manrope', sans-serif;
+    font-size: 44px;
+    line-height: 52px;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+  }
+  .font-headline-xl {
+    font-family: 'Manrope', sans-serif;
+    font-size: 32px;
+    line-height: 40px;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+  .font-headline-md {
+    font-family: 'Manrope', sans-serif;
+    font-size: 22px;
+    line-height: 30px;
+    letter-spacing: -0.01em;
+    font-weight: 600;
+  }
+  .font-headline-sm {
+    font-family: 'Manrope', sans-serif;
+    font-size: 18px;
+    line-height: 26px;
+    letter-spacing: -0.01em;
+    font-weight: 600;
+  }
+  .font-body-lg {
+    font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    line-height: 26px;
+    letter-spacing: -0.01em;
+    font-weight: 400;
+  }
+  .font-body-md {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    line-height: 22px;
+    letter-spacing: 0em;
+    font-weight: 400;
+  }
+  .font-body-sm {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    line-height: 18px;
+    letter-spacing: 0em;
+    font-weight: 400;
+  }
+  .font-label-md {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    line-height: 16px;
+    letter-spacing: 0.01em;
+    font-weight: 500;
+  }
+  .font-label-sm {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    line-height: 14px;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+  }
+  .font-mono-data {
+    font-family: 'Inter', monospace;
+    font-size: 13px;
+    line-height: 18px;
+    letter-spacing: 0.02em;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Material Symbols alignment helper */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+  user-select: none;
+  display: inline-block;
+  line-height: 1;
+}
