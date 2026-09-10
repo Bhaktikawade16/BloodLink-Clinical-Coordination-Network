@@ -84,8 +84,8 @@ function AppContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-surface text-on-surface antialiased">
-      {/* Public Header (Landing & Portal Selection) */}
-      {!isPortalView && (
+      {/* Public Header (Portal Selection) */}
+      {!isPortalView && currentRoute !== 'landing' && (
         <Header
           currentRoute={currentRoute}
           onNavigate={(route) => {
@@ -214,7 +214,7 @@ function AppContent() {
         </div>
       ) : (
         /* Public Layout Area (Landing and Portal Selection) */
-        <main className="flex-1 flex flex-col pt-16">
+        <main className={`flex-1 flex flex-col ${currentRoute !== 'landing' ? 'pt-16' : ''}`}>
           {currentRoute === 'landing' && (
             <LandingView
               onNavigate={(route) => {
@@ -229,19 +229,20 @@ function AppContent() {
           )}
 
           {currentRoute === 'portal-selection' && (
-            <PortalSelectionView
-              onNavigate={(route) => {
-                if (currentDonor && route !== 'donor-portal') {
-                  setCurrentRoute('donor-portal');
-                } else {
-                  setCurrentRoute(route);
-                }
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-            />
+            <>
+              <PortalSelectionView
+                onNavigate={(route) => {
+                  if (currentDonor && route !== 'donor-portal') {
+                    setCurrentRoute('donor-portal');
+                  } else {
+                    setCurrentRoute(route);
+                  }
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              />
+              <Footer />
+            </>
           )}
-
-          <Footer />
         </main>
       )}
     </div>

@@ -1,5 +1,101 @@
 {
+  "users": [
+    {
+      "user_id": 6,
+      "name": "Bhakti Kawade",
+      "email": "bhaktikawade3@gmail.com",
+      "phone": "+91 8263943572",
+      "password_hash": "78d5fde37058e982c1507167491706587fb9c46d30932eed34b139afeeae1844",
+      "role": "donor",
+      "city": "pune",
+      "latitude": 18.5204,
+      "longitude": 73.8567,
+      "created_at": "2026-09-10T07:13:38.639Z"
+    },
+    {
+      "user_id": 1,
+      "name": "Aarav Deshmukh",
+      "email": "aarav.donor@bloodlink.org",
+      "phone": "+91 98220 12345",
+      "password_hash": "2adf5001a183bf153607ae0b5109e7ebc9176c30f9291e88ca6c6c0238085562",
+      "role": "donor",
+      "city": "Pune",
+      "latitude": 18.5204,
+      "longitude": 73.8567,
+      "created_at": "2026-09-10T06:42:38.823Z"
+    },
+    {
+      "user_id": 2,
+      "name": "Dr. Radhika Sen",
+      "email": "admin@rubyhall.org",
+      "phone": "+91 20 6645 5100",
+      "password_hash": "2adf5001a183bf153607ae0b5109e7ebc9176c30f9291e88ca6c6c0238085562",
+      "role": "hospital",
+      "city": "Pune",
+      "latitude": 18.5312,
+      "longitude": 73.8765,
+      "created_at": "2026-09-10T06:42:38.823Z"
+    },
+    {
+      "user_id": 3,
+      "name": "Vikram Joshi",
+      "email": "contact@sahyadribank.org",
+      "phone": "+91 20 6721 5000",
+      "password_hash": "2adf5001a183bf153607ae0b5109e7ebc9176c30f9291e88ca6c6c0238085562",
+      "role": "blood_bank",
+      "city": "Pune",
+      "latitude": 18.5089,
+      "longitude": 73.8344,
+      "created_at": "2026-09-10T06:42:38.823Z"
+    },
+    {
+      "user_id": 4,
+      "name": "Meera Patil",
+      "email": "organizer@redcrosscamp.org",
+      "phone": "+91 94220 54321",
+      "password_hash": "2adf5001a183bf153607ae0b5109e7ebc9176c30f9291e88ca6c6c0238085562",
+      "role": "blood_camp",
+      "city": "Pune",
+      "latitude": 18.5298,
+      "longitude": 73.8476,
+      "created_at": "2026-09-10T06:42:38.823Z"
+    },
+    {
+      "user_id": 5,
+      "name": "Rohan Mehta",
+      "email": "rohan.new@donor.org",
+      "phone": "+91 98221 99999",
+      "password_hash": "2adf5001a183bf153607ae0b5109e7ebc9176c30f9291e88ca6c6c0238085562",
+      "role": "donor",
+      "city": "Pune",
+      "latitude": 18.5204,
+      "longitude": 73.8567,
+      "created_at": "2026-09-10T06:42:38.823Z"
+    }
+  ],
   "donors": [
+    {
+      "donor_id": 5,
+      "user_id": 6,
+      "name": "Bhakti Kawade",
+      "phone": "+91 8263943572",
+      "city": "pune",
+      "blood_group": "O+",
+      "date_of_birth": "1998-09-10",
+      "gender": "Female",
+      "weight_kg": 65,
+      "eligibility_status": "Pending Verification",
+      "verification_status": "Pending",
+      "last_donation_date": null,
+      "email": "bhaktikawade3@gmail.com",
+      "age": 25,
+      "area": "",
+      "state": "Maharashtra",
+      "donation_count": 0,
+      "is_available": false,
+      "available_for_emergency": false,
+      "history": []
+    },
     {
       "donor_id": 4,
       "name": "Aarav Sharma",
@@ -82,7 +178,8 @@
       "hospital_name": "Ruby Hall Clinic",
       "registration_number": "MH-HOSP-2024-001",
       "address": "Sassoon Road, Pune",
-      "verification_status": "unverified"
+      "verification_status": "unverified",
+      "verified_at": "2026-09-10T06:56:41.465Z"
     },
     {
       "hospital_id": 2,
@@ -90,7 +187,8 @@
       "hospital_name": "Test Hosp",
       "registration_number": "REG123",
       "address": "Pune",
-      "verification_status": "unverified"
+      "verification_status": "unverified",
+      "verified_at": "2026-09-10T06:56:41.282Z"
     },
     {
       "hospital_id": 3,
@@ -98,7 +196,8 @@
       "hospital_name": "BhartiHospital",
       "registration_number": "MED-LIC-1234-12345-C",
       "address": "shivaji nagar",
-      "verification_status": "unverified"
+      "verification_status": "unverified",
+      "verified_at": "2026-09-10T06:56:41.172Z"
     }
   ],
   "bloodBanks": [
@@ -124,7 +223,8 @@
       "bank_name": "Sahyadri Blood Bank",
       "license_number": "MH-BB-2024-045",
       "address": "FC Road, Pune",
-      "verification_status": "unverified"
+      "verification_status": "unverified",
+      "verified_at": "2026-09-10T06:56:40.654Z"
     },
     {
       "blood_bank_id": 2,
@@ -132,7 +232,29 @@
       "bank_name": "Test Bank",
       "license_number": "LIC123",
       "address": "Pune",
-      "verification_status": "unverified"
+      "verification_status": "unverified",
+      "verified_at": "2026-09-10T06:56:39.834Z"
+    }
+  ],
+  "bloodCamps": [
+    {
+      "camp_id": 1,
+      "user_id": 4,
+      "camp_name": "City Youth Blood Donation Drive 2026",
+      "organizer_name": "Meera Patil",
+      "registration_number": "ORG-RED-CROSS-PUN-77",
+      "address": "Shivaji Nagar Community Hall, Pune",
+      "city": "Pune",
+      "camp_date": "2026-10-15",
+      "verification_status": "Verified",
+      "created_at": "2026-09-10T06:42:38.823Z",
+      "start_time": "09:00:00",
+      "end_time": "17:00:00",
+      "capacity": 100,
+      "required_blood_group": "All Groups",
+      "partner_blood_bank": "Sahyadri Blood Bank & Component Lab",
+      "registered_count": 24,
+      "description": "Annual mega blood drive in partnership with Indian Red Cross Society."
     }
   ],
   "camps": [
@@ -202,14 +324,14 @@
       "component": "whole_blood",
       "units_required": 3,
       "urgency_level": "critical",
-      "required_by": "2026-09-11",
+      "required_by": "2026-09-11T18:00:00.000Z",
       "location": "Ruby Hall Emergency Ward",
-      "latitude": "18.5204",
-      "longitude": "73.8567",
-      "verification_status": "verified",
-      "request_status": "fulfilled",
-      "created_at": "2026-09-10T05:34:12.274Z",
-      "requested_by_name": "Duty Medical Officer",
+      "latitude": "18.520400",
+      "longitude": "73.856700",
+      "verification_status": "pending_verification",
+      "request_status": "searching",
+      "created_at": "2026-09-10T05:34:12.000Z",
+      "requested_by_name": "Ruby Hall Clinic Admin",
       "hospital_name": "Ruby Hall Clinic",
       "patient_diagnosis": "Acute blood loss",
       "assigned_blood_bank_id": "BANK-1",
@@ -340,5 +462,5 @@
       "id": "NOTIF-1789018452560-110"
     }
   ],
-  "updatedAt": "2026-09-10T05:34:24.982Z"
+  "updatedAt": "2026-09-10T08:22:55.634Z"
 }

@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
 import { authRouter } from './server/routes/auth';
@@ -47,6 +48,33 @@ async function startServer() {
     });
   });
 
+  // Check if custom landing video exists
+  app.get('/api/landing-video-status', (req, res) => {
+    const videoPath = path.join(process.cwd(), 'public', 'landing-video.mp4');
+    const exists = fs.existsSync(videoPath);
+    res.json({ exists, url: exists ? '/landing-video.mp4' : null });
+  });
+
+  // Upload landing video file
+  app.post(
+    '/api/upload-landing-video',
+    express.raw({ type: ['video/*', 'application/octet-stream'], limit: '100mb' }),
+    (req, res) => {
+      try {
+        if (!req.body || (req.body instanceof Buffer && req.body.length === 0)) {
+          return res.status(400).json({ success: false, error: 'No video data received' });
+        }
+        const videoPath = path.join(process.cwd(), 'public', 'landing-video.mp4');
+        fs.writeFileSync(videoPath, req.body);
+        console.log(`[Video] Landing video saved successfully (${req.body.length} bytes) to ${videoPath}`);
+        res.json({ success: true, url: '/landing-video.mp4' });
+      } catch (err: any) {
+        console.error('[Video] Failed to save landing video:', err);
+        res.status(500).json({ success: false, error: err.message });
+      }
+    }
+  );
+
   // Mount API Routers
   app.use('/api/auth', authRouter);
   app.use('/api/donors', donorsRouter);
@@ -71,6 +99,9 @@ async function startServer() {
   setInterval(() => {
     db.syncWithRailway().catch(() => {});
   }, 60000);
+
+  // Ensure public folder static assets (including landing-video.mp4) are served directly
+  app.use(express.static(path.join(process.cwd(), 'public')));
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
