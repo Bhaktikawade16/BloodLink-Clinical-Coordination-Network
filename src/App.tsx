@@ -20,30 +20,15 @@ import { Menu, LogOut, ShieldAlert, Heart } from 'lucide-react';
 
 function AppContent() {
   const { currentDonor, logoutDonor, currentUser, logoutUser } = useBloodLink();
-  const [currentRoute, setCurrentRoute] = useState<PortalRoute>(() => {
-    // If donor or currentUser is active in local storage, route to appropriate portal
-    try {
-      const savedUser = localStorage.getItem('bloodlink_auth_user');
-      if (savedUser) {
-        const u = JSON.parse(savedUser);
-        if (u.role === 'donor') return 'donor-portal';
-        if (u.role === 'hospital') return 'hospital-portal';
-        if (u.role === 'blood_bank') return 'blood-bank-portal';
-        if (u.role === 'blood_camp') return 'blood-camp-portal';
-      }
-      const savedDonor = localStorage.getItem('bloodlink_curr_donor');
-      if (savedDonor && JSON.parse(savedDonor)) {
-        return 'donor-portal';
-      }
-    } catch (e) {
-      // ignore
-    }
-    return 'landing';
-  });
+  // Always start at the landing page when opening the website URL
+  const [currentRoute, setCurrentRoute] = useState<PortalRoute>('landing');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Redirect user to the dashboard corresponding to their role
+  // Redirect authenticated users to their role portal only AFTER they leave the landing page
   useEffect(() => {
+    if (currentRoute === 'landing') {
+      return; // Always display the landing page until user clicks Let's Get Started
+    }
     if (currentUser) {
       if (currentUser.role === 'donor' && currentRoute !== 'donor-portal') {
         setCurrentRoute('donor-portal');
@@ -218,7 +203,13 @@ function AppContent() {
           {currentRoute === 'landing' && (
             <LandingView
               onNavigate={(route) => {
-                if (currentDonor && route !== 'donor-portal' && route !== 'landing') {
+                if (currentUser) {
+                  if (currentUser.role === 'donor') setCurrentRoute('donor-portal');
+                  else if (currentUser.role === 'hospital') setCurrentRoute('hospital-portal');
+                  else if (currentUser.role === 'blood_bank') setCurrentRoute('blood-bank-portal');
+                  else if (currentUser.role === 'blood_camp') setCurrentRoute('blood-camp-portal');
+                  else setCurrentRoute('portal-selection');
+                } else if (currentDonor) {
                   setCurrentRoute('donor-portal');
                 } else {
                   setCurrentRoute(route);
