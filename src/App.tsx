@@ -19,33 +19,53 @@ import { AdminPortalView } from './components/AdminPortalView';
 import { Menu, LogOut, ShieldAlert, Heart } from 'lucide-react';
 
 function AppContent() {
-  const { currentDonor, logoutDonor, currentUser, logoutUser } = useBloodLink();
+  const { currentDonor, currentUser, logoutUser } = useBloodLink();
   // Always start at the landing page when opening the website URL
   const [currentRoute, setCurrentRoute] = useState<PortalRoute>('landing');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [roleRedirectNotice, setRoleRedirectNotice] = useState<string | null>(null);
 
-  // Redirect authenticated users to their role portal only AFTER they leave the landing page
+  // Listen for cross-role redirect events
+  useEffect(() => {
+    const handleRoleRedirect = (e: any) => {
+      if (e.detail?.message) {
+        setRoleRedirectNotice(e.detail.message);
+        setTimeout(() => setRoleRedirectNotice(null), 7000);
+      } else if (e.detail?.role) {
+        setRoleRedirectNotice(
+          `Welcome back! Your account is registered as ${e.detail.role.replace('_', ' ').toUpperCase()}. Redirecting to your authorized dashboard.`
+        );
+        setTimeout(() => setRoleRedirectNotice(null), 7000);
+      }
+    };
+    window.addEventListener('bloodlink:role-redirect' as any, handleRoleRedirect);
+    return () => window.removeEventListener('bloodlink:role-redirect' as any, handleRoleRedirect);
+  }, []);
+
+  // Strict role-based portal protection and redirection
   useEffect(() => {
     if (currentRoute === 'landing') {
-      return; // Always display the landing page until user clicks Let's Get Started
+      return; // Landing page is always displayed until user clicks Get Started
     }
+
     if (currentUser) {
-      if (currentUser.role === 'donor' && currentRoute !== 'donor-portal') {
-        setCurrentRoute('donor-portal');
-      } else if (currentUser.role === 'hospital' && currentRoute !== 'hospital-portal') {
-        setCurrentRoute('hospital-portal');
-      } else if (currentUser.role === 'blood_bank' && currentRoute !== 'blood-bank-portal') {
-        setCurrentRoute('blood-bank-portal');
-      } else if (currentUser.role === 'blood_camp' && currentRoute !== 'blood-camp-portal') {
-        setCurrentRoute('blood-camp-portal');
+      const allowedPortalMap: Record<string, PortalRoute> = {
+        donor: 'donor-portal',
+        hospital: 'hospital-portal',
+        blood_bank: 'blood-bank-portal',
+        blood_camp: 'blood-camp-portal',
+        admin: 'admin-portal'
+      };
+      const targetPortal = allowedPortalMap[currentUser.role];
+      if (targetPortal && currentRoute !== targetPortal && currentRoute !== 'portal-selection') {
+        setCurrentRoute(targetPortal);
       }
     } else if (currentDonor) {
       if (
         currentRoute === 'hospital-portal' ||
         currentRoute === 'blood-bank-portal' ||
         currentRoute === 'blood-camp-portal' ||
-        currentRoute === 'admin-portal' ||
-        currentRoute === 'portal-selection'
+        currentRoute === 'admin-portal'
       ) {
         setCurrentRoute('donor-portal');
       }
@@ -60,9 +80,8 @@ function AppContent() {
     currentRoute === 'blood-camp-portal' ||
     currentRoute === 'admin-portal';
 
-  const handleSignOutUser = () => {
-    if (currentDonor) logoutDonor();
-    if (currentUser) logoutUser();
+  const handleSignOutUser = async () => {
+    await logoutUser();
     setCurrentRoute('landing');
     setMobileMenuOpen(false);
   };
@@ -183,17 +202,34 @@ function AppContent() {
               )}
             </div>
 
+            {/* Role Redirect Toast Notification */}
+            {roleRedirectNotice && (
+              <div className="mx-4 sm:mx-6 lg:mx-8 mt-4 p-3.5 bg-blue-50/95 border border-blue-200 text-blue-900 rounded-xl text-xs flex items-center justify-between shadow-xs animate-fadeIn">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span className="font-medium">{roleRedirectNotice}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRoleRedirectNotice(null)}
+                  className="text-blue-500 hover:text-blue-800 font-bold ml-3 cursor-pointer text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
             {/* Main Portal Viewport */}
             <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-              {currentRoute === 'hospital-portal' && !currentDonor && <HospitalPortalView />}
+              {currentRoute === 'hospital-portal' && <HospitalPortalView />}
 
-              {currentRoute === 'blood-bank-portal' && !currentDonor && <BloodBankPortalView />}
+              {currentRoute === 'blood-bank-portal' && <BloodBankPortalView />}
 
               {currentRoute === 'donor-portal' && <DonorPortalView />}
 
-              {currentRoute === 'blood-camp-portal' && !currentDonor && <BloodCampPortalView />}
+              {currentRoute === 'blood-camp-portal' && <BloodCampPortalView />}
 
-              {currentRoute === 'admin-portal' && !currentDonor && <AdminPortalView />}
+              {currentRoute === 'admin-portal' && <AdminPortalView />}
             </main>
           </div>
         </div>

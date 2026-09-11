@@ -1,6 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import { hashPasswordServer } from './authUtils';
+import {
+  runSmartMatching,
+  evaluateDonorEligibility,
+  maskDonorIdentifier,
+  maskPhoneNumber,
+  SmartMatchResults,
+  normalizeComponent
+} from './matchingEngine';
 
 export const DEFAULT_RAILWAY_DATABASE_URL =
   process.env.VITE_BLOODLINK_API_URL || 'https://bloodlink-api-production.up.railway.app';
@@ -144,11 +152,64 @@ export interface DbInventory {
   units_available: number;
   units_reserved: number;
   expire_date: string;
-  // Extended fields
+  // Extended & reservation tracking fields
   unit_id_str?: string;
   volume?: number;
   collection_date?: string;
-  status?: 'Available' | 'Reserved' | 'Expired';
+  total_quantity?: number;
+  available_quantity?: number;
+  reserved_quantity?: number;
+  issued_quantity?: number;
+  status?: 'Available' | 'Reserved' | 'Issued' | 'Expired';
+}
+
+export interface DbInventoryReservation {
+  reservation_id: string;
+  request_id: number;
+  inventory_id: number;
+  blood_bank_id: number;
+  blood_bank_name: string;
+  blood_group: string;
+  component: string;
+  units_reserved: number;
+  status: 'Pending Confirmation' | 'Confirmed' | 'Released' | 'Issued' | 'Expired';
+  created_at: string;
+  expires_at: string;
+  confirmed_at?: string;
+  rejection_reason?: string;
+}
+
+export interface DbRequestTimeline {
+  timeline_id: string;
+  request_id: number;
+  title: string;
+  description: string;
+  timestamp: string;
+  status: string;
+  icon?: string;
+}
+
+export interface DbDonorResponse {
+  response_id: string;
+  request_id: number;
+  donor_id: number;
+  masked_donor_code: string;
+  status: 'STANDBY' | 'ACTIVE_ALERT' | 'ACCEPTED' | 'DECLINED' | 'STANDBY_RELEASED' | 'FULFILLED';
+  response?: 'ACCEPT' | 'DECLINE' | 'NO_RESPONSE';
+  notified_at: string;
+  responded_at?: string;
+}
+
+export interface DbAuditLog {
+  audit_id: string;
+  user_id: number | string;
+  user_name: string;
+  user_role: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | number;
+  timestamp: string;
+  metadata?: any;
 }
 
 export interface DbBloodRequest {
@@ -169,14 +230,30 @@ export interface DbBloodRequest {
   created_at: string;
   requested_by_name?: string;
   hospital_name?: string;
-  // Extended workflow tracking
+  // Extended workflow & clinical verification tracking
+  ward_department?: string;
+  doctor_name?: string;
+  doctor_authorized_person?: string;
+  requisition_doc_name?: string;
+  additional_notes?: string;
+  patient_diagnosis?: string;
+  verified_at?: string;
+  verified_by?: string;
+  rejection_reason?: string;
   assigned_blood_bank_id?: string;
   assigned_blood_bank_name?: string;
   rejected_by_blood_bank_ids?: string[];
   allocated_units?: number;
+  fulfilled_units?: number;
   delivery_status?: string;
   tracking_number?: string;
-  patient_diagnosis?: string;
+  cascade_radius_km?: number;
+  cascade_stage?: string;
+  reservation_requested_at?: string;
+  reservation_expires_at?: string;
+  reservation_confirmed_at?: string;
+  donor_dispatch_started_at?: string;
+  fulfilled_at?: string;
 }
 
 export interface DbCampAttendee {
@@ -224,6 +301,10 @@ class BloodLinkDatabase {
   private campAttendees: DbCampAttendee[] = [];
   private organizers: DbOrganizer[] = [];
   private notifications: DbNotification[] = [];
+  private reservations: DbInventoryReservation[] = [];
+  private timelines: DbRequestTimeline[] = [];
+  private donorResponses: DbDonorResponse[] = [];
+  private auditLogs: DbAuditLog[] = [];
 
   private isConnected: boolean = false;
   private lastSyncedAt: string | null = null;
@@ -234,6 +315,10 @@ class BloodLinkDatabase {
     this.ensureDataDir();
     this.loadFromDisk();
     this.ensureInitialSeed();
+    // 7-minute reservation auto-expiry checker loop (checks every 10 seconds)
+    setInterval(() => {
+      this.checkAndExpireReservations();
+    }, 10000);
   }
 
   private ensureDataDir() {
@@ -262,6 +347,10 @@ class BloodLinkDatabase {
         if (Array.isArray(data.campAttendees)) this.campAttendees = data.campAttendees;
         if (Array.isArray(data.organizers)) this.organizers = data.organizers;
         if (Array.isArray(data.notifications)) this.notifications = data.notifications;
+        if (Array.isArray(data.reservations)) this.reservations = data.reservations;
+        if (Array.isArray(data.timelines)) this.timelines = data.timelines;
+        if (Array.isArray(data.donorResponses)) this.donorResponses = data.donorResponses;
+        if (Array.isArray(data.auditLogs)) this.auditLogs = data.auditLogs;
       }
     } catch (e) {
       console.warn('Failed to load local database snapshot:', e);
@@ -467,6 +556,10 @@ class BloodLinkDatabase {
         campAttendees: this.campAttendees,
         organizers: this.organizers,
         notifications: this.notifications,
+        reservations: this.reservations,
+        timelines: this.timelines,
+        donorResponses: this.donorResponses,
+        auditLogs: this.auditLogs,
         updatedAt: new Date().toISOString()
       };
       fs.writeFileSync(DATA_FILE, JSON.stringify(payload, null, 2), 'utf-8');
@@ -1176,6 +1269,7 @@ class BloodLinkDatabase {
         ? Math.max(...this.bloodRequests.map((r) => r.request_id)) + 1
         : 1;
 
+    const now = new Date().toISOString();
     const newReq: DbBloodRequest = {
       request_id: nextId,
       request_user_id: payload.request_user_id || 2,
@@ -1184,22 +1278,67 @@ class BloodLinkDatabase {
       blood_group: payload.blood_group || 'O+',
       component: payload.component || 'whole_blood',
       units_required: Number(payload.units_required || 1),
-      urgency_level: payload.urgency_level || 'urgent',
+      urgency_level: payload.urgency_level || 'critical',
       required_by:
         payload.required_by ||
         new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' '),
       location: payload.location || 'Hospital Trauma Center',
       latitude: String(payload.latitude || 18.5204),
       longitude: String(payload.longitude || 73.8567),
-      verification_status: 'verified',
-      request_status: 'searching',
-      created_at: new Date().toISOString(),
+      verification_status: 'Pending Verification',
+      request_status: 'Pending Verification',
+      created_at: now,
       requested_by_name: payload.requested_by_name || 'Duty Medical Officer',
       hospital_name: payload.hospital_name || 'Ruby Hall Clinic',
-      patient_diagnosis: payload.patient_diagnosis || 'Acute blood loss'
+      patient_diagnosis: payload.patient_diagnosis || 'Emergency transfusion',
+      ward_department: payload.ward_department || 'Emergency ICU / Trauma',
+      doctor_name: payload.doctor_name || 'Dr. On-Duty Specialist',
+      doctor_authorized_person:
+        payload.doctor_authorized_person || payload.requested_by_name || 'Chief Medical Officer',
+      requisition_doc_name: payload.requisition_doc_name || 'Signed_Requisition_Form.pdf',
+      additional_notes: payload.additional_notes || '',
+      cascade_radius_km: 5,
+      cascade_stage: '5km',
+      allocated_units: 0,
+      fulfilled_units: 0,
+      delivery_status: 'Pending Verification'
     };
 
     this.bloodRequests.unshift(newReq);
+
+    // Add initial clinical timeline item
+    this.addTimelineItem(
+      nextId,
+      'Emergency Requisition Created',
+      `Requisition submitted for ${newReq.units_required} unit(s) of ${newReq.blood_group} ${newReq.component.toUpperCase()} (Urgency: ${newReq.urgency_level.toUpperCase()}). Awaiting verification.`,
+      'Pending Verification'
+    );
+
+    // Add Audit Log
+    this.addAuditLog({
+      user_id: newReq.request_user_id,
+      user_name: newReq.requested_by_name || 'Hospital Staff',
+      user_role: 'hospital',
+      action: 'EMERGENCY_REQUISITION_CREATED',
+      entity_type: 'blood_request',
+      entity_id: nextId,
+      metadata: {
+        blood_group: newReq.blood_group,
+        component: newReq.component,
+        units: newReq.units_required,
+        urgency: newReq.urgency_level
+      }
+    });
+
+    // Notify Hospital
+    this.addNotification({
+      title: 'Emergency Blood Requisition Logged',
+      message: `Requisition REQ-${nextId} for ${newReq.units_required}u ${newReq.blood_group} is queued for clinical verification.`,
+      time: 'Just now',
+      type: 'info',
+      is_urgent: newReq.urgency_level === 'critical'
+    });
+
     this.saveToDisk();
 
     // Forward to Railway PostgreSQL database asynchronously
@@ -1240,6 +1379,823 @@ class BloodLinkDatabase {
     return newReq;
   }
 
+  // --- VERIFICATION WORKFLOW ---
+  public verifyBloodRequest(
+    id: number | string,
+    verifiedBy: string = 'Duty Medical Director',
+    notes?: string
+  ): DbBloodRequest | null {
+    const target = this.getBloodRequestById(id);
+    if (!target) return null;
+
+    target.verification_status = 'Verified';
+    target.verified_at = new Date().toISOString();
+    target.verified_by = verifiedBy;
+    target.request_status = 'Matching';
+    target.delivery_status = 'Verified & Matching';
+    if (notes) target.additional_notes = notes;
+
+    this.addTimelineItem(
+      target.request_id,
+      'Clinical Verification Completed',
+      `Requisition verified by ${verifiedBy}. Institutional credentials, patient diagnosis, and component justification verified. Smart Matching Engine activated.`,
+      'Verified'
+    );
+
+    this.addAuditLog({
+      user_id: 2,
+      user_name: verifiedBy,
+      user_role: 'hospital',
+      action: 'REQUISITION_VERIFIED',
+      entity_type: 'blood_request',
+      entity_id: target.request_id,
+      metadata: { verifiedBy, notes }
+    });
+
+    this.addNotification({
+      title: 'Emergency Request Verified',
+      message: `REQ-${target.request_id} verified. Smart Matching Engine initiated across regional network.`,
+      time: 'Just now',
+      type: 'success',
+      is_urgent: target.urgency_level === 'critical'
+    });
+
+    // Automatically trigger Smart Matching coordination
+    this.executeSmartMatchingForRequest(target.request_id);
+
+    this.saveToDisk();
+    return target;
+  }
+
+  public rejectVerificationBloodRequest(
+    id: number | string,
+    rejectedBy: string = 'Medical Authority',
+    reason: string = 'Clinical criteria or documentation unverified'
+  ): DbBloodRequest | null {
+    const target = this.getBloodRequestById(id);
+    if (!target) return null;
+
+    target.verification_status = 'Rejected';
+    target.rejection_reason = reason;
+    target.request_status = 'Cancelled';
+    target.delivery_status = 'Rejected';
+
+    this.addTimelineItem(
+      target.request_id,
+      'Requisition Verification Rejected',
+      `Rejected by ${rejectedBy}: "${reason}". Request marked as cancelled.`,
+      'Rejected'
+    );
+
+    this.addAuditLog({
+      user_id: 2,
+      user_name: rejectedBy,
+      user_role: 'hospital',
+      action: 'REQUISITION_REJECTED',
+      entity_type: 'blood_request',
+      entity_id: target.request_id,
+      metadata: { rejectedBy, reason }
+    });
+
+    this.addNotification({
+      title: 'Requisition Rejected',
+      message: `REQ-${target.request_id} was rejected during clinical verification: ${reason}`,
+      time: 'Just now',
+      type: 'alert'
+    });
+
+    this.saveToDisk();
+    return target;
+  }
+
+  // --- SMART MATCHING ENGINE & BLOOD BANK PRIORITY ---
+  public executeSmartMatchingForRequest(id: number | string): SmartMatchResults | null {
+    const target = this.getBloodRequestById(id);
+    if (!target) return null;
+
+    const results = runSmartMatching(
+      {
+        request_id: target.request_id,
+        blood_group: target.blood_group,
+        component: target.component,
+        units_required: target.units_required,
+        urgency_level: target.urgency_level,
+        hospital_name: target.hospital_name,
+        latitude: target.latitude,
+        longitude: target.longitude,
+        cascade_radius_km: target.cascade_radius_km || 5
+      },
+      this.inventory,
+      this.bloodBanks,
+      this.donors
+    );
+
+    const now = new Date();
+
+    if (results.recommendedBloodBanks.length > 0) {
+      // Blood Bank First Priority!
+      const topBank = results.recommendedBloodBanks[0];
+      const expiry = new Date(now.getTime() + 7 * 60 * 1000).toISOString(); // 7-minute window
+
+      // Check if existing reservation
+      let existingRes = this.reservations.find(
+        (r) => r.request_id === target.request_id && r.status === 'Pending Confirmation'
+      );
+
+      if (!existingRes) {
+        const newReservation: DbInventoryReservation = {
+          reservation_id: `RES-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          request_id: target.request_id,
+          inventory_id: topBank.blood_bank_id,
+          blood_bank_id: topBank.blood_bank_id,
+          blood_bank_name: topBank.bank_name,
+          blood_group: target.blood_group,
+          component: target.component,
+          units_reserved: target.units_required,
+          status: 'Pending Confirmation',
+          created_at: now.toISOString(),
+          expires_at: expiry
+        };
+        this.reservations.unshift(newReservation);
+      }
+
+      target.assigned_blood_bank_id = String(topBank.blood_bank_id);
+      target.assigned_blood_bank_name = topBank.bank_name;
+      target.reservation_requested_at = now.toISOString();
+      target.reservation_expires_at = expiry;
+      target.request_status = 'Blood Bank Reserved';
+      target.delivery_status = 'Awaiting Blood Bank Confirmation';
+
+      this.addTimelineItem(
+        target.request_id,
+        'Blood Bank First Priority: Soft Reservation Placed',
+        `${topBank.bank_name} selected as primary provider (Match Score: ${topBank.match_score}%, Distance: ${topBank.distance_km} km). 7-minute confirmation window activated until ${expiry.slice(11, 19)}. Eligible donors queued on Standby.`,
+        'Blood Bank Reserved'
+      );
+
+      // Register Standby Donors
+      for (const donor of results.standbyDonors) {
+        const existingResp = this.donorResponses.find(
+          (dr) => dr.request_id === target.request_id && dr.donor_id === donor.donor_id
+        );
+        if (!existingResp) {
+          this.donorResponses.unshift({
+            response_id: `DR-${Date.now()}-${donor.donor_id}`,
+            request_id: target.request_id,
+            donor_id: donor.donor_id,
+            masked_donor_code: donor.masked_donor_code,
+            status: 'STANDBY',
+            notified_at: now.toISOString()
+          });
+        }
+      }
+
+      this.addTimelineItem(
+        target.request_id,
+        'Standby Queue Initialized',
+        `${results.standbyDonors.length} clinically eligible donors placed on STANDBY (#1 Recommended: ${results.standbyDonors[0]?.masked_donor_code || 'N/A'}). Will automatically mobilize if unconfirmed after 7 minutes.`,
+        'Standby'
+      );
+
+      this.addNotification({
+        title: 'Emergency Reservation Requested',
+        message: `Emergency reservation request sent to ${topBank.bank_name} for ${target.units_required}u ${target.blood_group} ${target.component.toUpperCase()}. 7-minute response window started.`,
+        time: 'Just now',
+        type: 'alert',
+        is_urgent: true
+      });
+    } else {
+      // No Blood Bank inventory found -> Expand cascade & mobilize donors directly
+      target.cascade_radius_km = 30;
+      target.cascade_stage = 'Regional';
+      target.request_status = 'Donor Dispatch';
+      target.donor_dispatch_started_at = now.toISOString();
+      target.delivery_status = 'Emergency Donors Mobilized';
+
+      this.addTimelineItem(
+        target.request_id,
+        'Emergency Cascade Radius Expanded',
+        `No immediate blood bank inventory found in 0–5 km zone. Cascade expanded to 30 km Metro/Regional network. Activating emergency donor standby queue directly.`,
+        'Donor Dispatch'
+      );
+
+      for (const donor of results.standbyDonors) {
+        this.donorResponses.unshift({
+          response_id: `DR-${Date.now()}-${donor.donor_id}`,
+          request_id: target.request_id,
+          donor_id: donor.donor_id,
+          masked_donor_code: donor.masked_donor_code,
+          status: 'ACTIVE_ALERT',
+          notified_at: now.toISOString()
+        });
+      }
+
+      this.addTimelineItem(
+        target.request_id,
+        'Active Donor Alerts Dispatched',
+        `Emergency alerts sent to ${results.standbyDonors.length} top-ranked matching donors (#1 ${results.standbyDonors[0]?.masked_donor_code || ''}). Awaiting donor acceptance.`,
+        'Active Alert'
+      );
+
+      this.addNotification({
+        title: 'Emergency Donor Dispatch Activated',
+        message: `Immediate donor dispatch activated for ${target.hospital_name} (${target.blood_group} ${target.component.toUpperCase()}).`,
+        time: 'Just now',
+        type: 'alert',
+        is_urgent: true
+      });
+    }
+
+    this.saveToDisk();
+    return results;
+  }
+
+  public getSmartMatchesForRequest(id: number | string): SmartMatchResults | null {
+    const target = this.getBloodRequestById(id);
+    if (!target) return null;
+
+    return runSmartMatching(
+      {
+        request_id: target.request_id,
+        blood_group: target.blood_group,
+        component: target.component,
+        units_required: target.units_required,
+        urgency_level: target.urgency_level,
+        hospital_name: target.hospital_name,
+        latitude: target.latitude,
+        longitude: target.longitude,
+        cascade_radius_km: target.cascade_radius_km || 15
+      },
+      this.inventory,
+      this.bloodBanks,
+      this.donors
+    );
+  }
+
+  // --- 7-MINUTE CONFIRMATION WINDOW ACTIONS ---
+  public confirmInventoryReservation(
+    requestId: number | string,
+    bloodBankId: number | string
+  ): DbInventoryReservation | null {
+    const numReqId = Number(String(requestId).replace(/\D/g, ''));
+    const target = this.getBloodRequestById(numReqId);
+    const reservation = this.reservations.find(
+      (r) => r.request_id === numReqId && r.status === 'Pending Confirmation'
+    );
+
+    if (!reservation) return null;
+
+    const now = new Date().toISOString();
+    reservation.status = 'Confirmed';
+    reservation.confirmed_at = now;
+
+    if (target) {
+      target.request_status = 'Blood Bank Reserved';
+      target.reservation_confirmed_at = now;
+      target.delivery_status = 'Reservation Confirmed — Preparing Dispatch';
+      target.allocated_units = reservation.units_reserved;
+    }
+
+    // Release Standby Donors (they are no longer needed!)
+    const standbyResps = this.donorResponses.filter(
+      (dr) => dr.request_id === numReqId && dr.status === 'STANDBY'
+    );
+    for (const dr of standbyResps) {
+      dr.status = 'STANDBY_RELEASED';
+    }
+
+    this.addTimelineItem(
+      numReqId,
+      'Blood Bank Reservation Confirmed',
+      `${reservation.blood_bank_name} confirmed availability within the 7-minute window. Units locked. Standby Donors safely released without unnecessary mobilization.`,
+      'Confirmed'
+    );
+
+    this.addAuditLog({
+      user_id: bloodBankId,
+      user_name: reservation.blood_bank_name,
+      user_role: 'blood_bank',
+      action: 'RESERVATION_CONFIRMED',
+      entity_type: 'inventory_reservation',
+      entity_id: reservation.reservation_id,
+      metadata: { requestId: numReqId, units: reservation.units_reserved }
+    });
+
+    this.addNotification({
+      title: 'Blood Bank Confirmed Supply',
+      message: `${reservation.blood_bank_name} confirmed reservation of ${reservation.units_reserved} unit(s) for REQ-${numReqId}.`,
+      time: 'Just now',
+      type: 'success'
+    });
+
+    this.saveToDisk();
+    return reservation;
+  }
+
+  public rejectInventoryReservation(
+    requestId: number | string,
+    bloodBankId: number | string,
+    reason: string = 'Stock reserved for critical OT or emergency deficit'
+  ): DbInventoryReservation | null {
+    const numReqId = Number(String(requestId).replace(/\D/g, ''));
+    const target = this.getBloodRequestById(numReqId);
+    const reservation = this.reservations.find(
+      (r) => r.request_id === numReqId && r.status === 'Pending Confirmation'
+    );
+
+    if (!reservation) return null;
+
+    reservation.status = 'Released';
+    reservation.rejection_reason = reason;
+
+    if (target) {
+      // Transition immediately to Donor Dispatch
+      target.request_status = 'Donor Dispatch';
+      target.delivery_status = 'Emergency Donors Mobilized';
+      target.donor_dispatch_started_at = new Date().toISOString();
+      target.cascade_radius_km = 30;
+      target.cascade_stage = '15km';
+    }
+
+    // Mobilize standby donors!
+    const standbyResps = this.donorResponses.filter(
+      (dr) => dr.request_id === numReqId && dr.status === 'STANDBY'
+    );
+    for (const dr of standbyResps) {
+      dr.status = 'ACTIVE_ALERT';
+    }
+
+    this.addTimelineItem(
+      numReqId,
+      'Blood Bank Declined Reservation: Standby Donors Mobilized',
+      `${reservation.blood_bank_name} declined reservation: "${reason}". Automated emergency cascade initiated: ${standbyResps.length} Standby Donors mobilized to Active Alert status.`,
+      'Donor Dispatch'
+    );
+
+    this.addAuditLog({
+      user_id: bloodBankId,
+      user_name: reservation.blood_bank_name,
+      user_role: 'blood_bank',
+      action: 'RESERVATION_DECLINED_STANDBY_ACTIVATED',
+      entity_type: 'inventory_reservation',
+      entity_id: reservation.reservation_id,
+      metadata: { reason, mobilizedDonors: standbyResps.length }
+    });
+
+    this.addNotification({
+      title: 'Donors Mobilized on Blood Bank Decline',
+      message: `Reservation declined by ${reservation.blood_bank_name}. ${standbyResps.length} Standby Donors mobilized immediately.`,
+      time: 'Just now',
+      type: 'alert',
+      is_urgent: true
+    });
+
+    this.saveToDisk();
+    return reservation;
+  }
+
+  // Auto-expiry loop for 7-minute reservation
+  public checkAndExpireReservations() {
+    const now = Date.now();
+    let changed = false;
+
+    for (const res of this.reservations) {
+      if (res.status === 'Pending Confirmation' && new Date(res.expires_at).getTime() <= now) {
+        res.status = 'Expired';
+        changed = true;
+
+        const target = this.getBloodRequestById(res.request_id);
+        if (target) {
+          target.request_status = 'Donor Dispatch';
+          target.delivery_status = 'Window Expired — Donors Mobilized';
+          target.donor_dispatch_started_at = new Date().toISOString();
+          target.cascade_radius_km = 30;
+
+          // Mobilize Standby Donors
+          const standby = this.donorResponses.filter(
+            (dr) => dr.request_id === res.request_id && dr.status === 'STANDBY'
+          );
+          for (const dr of standby) {
+            dr.status = 'ACTIVE_ALERT';
+          }
+
+          this.addTimelineItem(
+            res.request_id,
+            '7-Minute Confirmation Window Expired',
+            `Blood bank confirmation timed out (exceeded 7-minute soft lock). System automatically transitioned ${standby.length} Standby Donors to ACTIVE ALERT emergency dispatch.`,
+            'Donor Dispatch'
+          );
+
+          this.addAuditLog({
+            user_id: 0,
+            user_name: 'BloodLink Automation Engine',
+            user_role: 'system',
+            action: 'RESERVATION_AUTO_EXPIRED',
+            entity_type: 'inventory_reservation',
+            entity_id: res.reservation_id,
+            metadata: { requestId: res.request_id, mobilizedCount: standby.length }
+          });
+
+          this.addNotification({
+            title: '7-Minute Window Expired: Donors Mobilized',
+            message: `Reservation window expired for REQ-${res.request_id}. Donors have been mobilized to Active Alert.`,
+            time: 'Just now',
+            type: 'alert',
+            is_urgent: true
+          });
+        }
+      }
+    }
+
+    if (changed) {
+      this.saveToDisk();
+    }
+  }
+
+  // --- DONOR RESPONSE ACTIONS ---
+  public recordDonorResponse(
+    requestId: number | string,
+    donorId: number | string,
+    response: 'ACCEPT' | 'DECLINE'
+  ): DbDonorResponse | null {
+    const numReqId = Number(String(requestId).replace(/\D/g, ''));
+    const numDonorId = Number(donorId);
+    const target = this.getBloodRequestById(numReqId);
+
+    let donorResp = this.donorResponses.find(
+      (dr) => dr.request_id === numReqId && dr.donor_id === numDonorId
+    );
+
+    const now = new Date().toISOString();
+
+    if (!donorResp) {
+      donorResp = {
+        response_id: `DR-${Date.now()}-${numDonorId}`,
+        request_id: numReqId,
+        donor_id: numDonorId,
+        masked_donor_code: maskDonorIdentifier(numDonorId),
+        status: response === 'ACCEPT' ? 'ACCEPTED' : 'DECLINED',
+        response: response,
+        notified_at: now,
+        responded_at: now
+      };
+      this.donorResponses.unshift(donorResp);
+    } else {
+      donorResp.response = response;
+      donorResp.status = response === 'ACCEPT' ? 'ACCEPTED' : 'DECLINED';
+      donorResp.responded_at = now;
+    }
+
+    if (response === 'ACCEPT') {
+      this.addTimelineItem(
+        numReqId,
+        'Donor Accepted Emergency Dispatch',
+        `Verified Donor #${donorResp.masked_donor_code} ACCEPTED the mobilization request. ETA ~15 minutes to ${target?.hospital_name || 'Hospital'}. Contact masked for clinical confidentiality.`,
+        'Donor Accepted'
+      );
+
+      this.addAuditLog({
+        user_id: numDonorId,
+        user_name: `Donor #${donorResp.masked_donor_code}`,
+        user_role: 'donor',
+        action: 'DONOR_DISPATCH_ACCEPTED',
+        entity_type: 'blood_request',
+        entity_id: numReqId,
+        metadata: { donorId: numDonorId, maskedCode: donorResp.masked_donor_code }
+      });
+
+      this.addNotification({
+        title: 'Emergency Donor En Route',
+        message: `Verified Donor #${donorResp.masked_donor_code} accepted REQ-${numReqId} and is proceeding to ${target?.hospital_name || 'hospital'}.`,
+        time: 'Just now',
+        type: 'success',
+        is_urgent: true
+      });
+    } else {
+      this.addTimelineItem(
+        numReqId,
+        'Donor Declined Dispatch',
+        `Verified Donor #${donorResp.masked_donor_code} was unable to respond to this dispatch. Backup donors remain queued.`,
+        'Donor Declined'
+      );
+
+      this.addAuditLog({
+        user_id: numDonorId,
+        user_name: `Donor #${donorResp.masked_donor_code}`,
+        user_role: 'donor',
+        action: 'DONOR_DISPATCH_DECLINED',
+        entity_type: 'blood_request',
+        entity_id: numReqId,
+        metadata: { donorId: numDonorId }
+      });
+    }
+
+    this.saveToDisk();
+    return donorResp;
+  }
+
+  public getDonorResponsesForRequest(requestId: number | string): DbDonorResponse[] {
+    const numReqId = Number(String(requestId).replace(/\D/g, ''));
+    return this.donorResponses.filter((dr) => dr.request_id === numReqId);
+  }
+
+  public getReservationsForRequest(requestId: number | string): DbInventoryReservation[] {
+    const numReqId = Number(String(requestId).replace(/\D/g, ''));
+    return this.reservations.filter((r) => r.request_id === numReqId);
+  }
+
+  // --- ATOMIC INVENTORY ISSUE & AUTOMATIC CLOSURE ---
+  public issueBloodUnits(
+    requestId: number | string,
+    inventoryId: number | string,
+    units: number
+  ): DbBloodRequest | null {
+    const target = this.getBloodRequestById(requestId);
+    if (!target) return null;
+
+    const numUnits = Number(units) || 1;
+    target.fulfilled_units = (target.fulfilled_units || 0) + numUnits;
+    target.allocated_units = Math.max(target.allocated_units || 0, target.fulfilled_units);
+
+    // Update inventory item if present
+    const inv = this.inventory.find(
+      (i) => i.inventory_id === Number(inventoryId) || i.unit_id_str === String(inventoryId)
+    );
+    if (inv) {
+      inv.units_reserved = Math.max(0, (inv.units_reserved || 0) - numUnits);
+      inv.issued_quantity = (inv.issued_quantity || 0) + numUnits;
+      inv.units_available = Math.max(0, (inv.units_available || 0) - numUnits);
+    }
+
+    this.addTimelineItem(
+      target.request_id,
+      'Blood Units Issued & Transferred',
+      `Issued ${numUnits} unit(s) of ${target.blood_group} ${target.component.toUpperCase()} for transfusion. Total fulfilled: ${target.fulfilled_units}/${target.units_required}.`,
+      'Units Issued'
+    );
+
+    this.addAuditLog({
+      user_id: 3,
+      user_name: target.assigned_blood_bank_name || 'Blood Bank Lab',
+      user_role: 'blood_bank',
+      action: 'UNITS_ISSUED',
+      entity_type: 'blood_request',
+      entity_id: target.request_id,
+      metadata: { unitsIssued: numUnits, fulfilledTotal: target.fulfilled_units }
+    });
+
+    // Automatic Request Closure check
+    if (target.fulfilled_units >= target.units_required) {
+      this.fulfillBloodRequest(target.request_id);
+    } else {
+      this.saveToDisk();
+    }
+
+    return target;
+  }
+
+  public fulfillBloodRequest(requestId: number | string): DbBloodRequest | null {
+    const target = this.getBloodRequestById(requestId);
+    if (!target) return null;
+
+    target.request_status = 'Fulfilled';
+    target.delivery_status = 'Supplied & Closed';
+    target.fulfilled_at = new Date().toISOString();
+
+    // Release any remaining active alerts or standby donors
+    const donorResps = this.donorResponses.filter(
+      (dr) => dr.request_id === target.request_id
+    );
+    for (const dr of donorResps) {
+      if (dr.status === 'STANDBY' || dr.status === 'ACTIVE_ALERT') {
+        dr.status = 'STANDBY_RELEASED';
+      } else if (dr.status === 'ACCEPTED') {
+        dr.status = 'FULFILLED';
+      }
+    }
+
+    this.addTimelineItem(
+      target.request_id,
+      'Requisition Fulfilled & Closed',
+      `All ${target.units_required} unit(s) successfully verified, issued, and received. Emergency cascade closed. Standby alerts deactivated.`,
+      'Fulfilled'
+    );
+
+    this.addAuditLog({
+      user_id: 2,
+      user_name: target.hospital_name || 'Hospital Center',
+      user_role: 'hospital',
+      action: 'REQUISITION_FULFILLED_CLOSED',
+      entity_type: 'blood_request',
+      entity_id: target.request_id,
+      metadata: { fulfilledUnits: target.fulfilled_units, requiredUnits: target.units_required }
+    });
+
+    this.addNotification({
+      title: 'Emergency Blood Request Fulfilled',
+      message: `Requisition REQ-${target.request_id} for ${target.patient_name} has been fully fulfilled (${target.fulfilled_units} units).`,
+      time: 'Just now',
+      type: 'success'
+    });
+
+    this.saveToDisk();
+    return target;
+  }
+
+  public cancelBloodRequest(requestId: number | string, reason: string): DbBloodRequest | null {
+    const target = this.getBloodRequestById(requestId);
+    if (!target) return null;
+
+    target.request_status = 'Cancelled';
+    target.delivery_status = 'Cancelled';
+    target.rejection_reason = reason;
+
+    // Release all reservations and standby donors
+    for (const res of this.reservations.filter((r) => r.request_id === target.request_id)) {
+      if (res.status === 'Pending Confirmation') res.status = 'Released';
+    }
+    for (const dr of this.donorResponses.filter((d) => d.request_id === target.request_id)) {
+      dr.status = 'STANDBY_RELEASED';
+    }
+
+    this.addTimelineItem(
+      target.request_id,
+      'Requisition Cancelled',
+      `Cancelled: "${reason}". All reservations released and standby queues cleared.`,
+      'Cancelled'
+    );
+
+    this.addAuditLog({
+      user_id: target.request_user_id,
+      user_name: target.hospital_name || 'Hospital',
+      user_role: 'hospital',
+      action: 'REQUISITION_CANCELLED',
+      entity_type: 'blood_request',
+      entity_id: target.request_id,
+      metadata: { reason }
+    });
+
+    this.saveToDisk();
+    return target;
+  }
+
+  // --- TIMELINE & AUDIT LOG ACCESSORS ---
+  public getRequestTimeline(requestId: number | string): DbRequestTimeline[] {
+    const numReqId = Number(String(requestId).replace(/\D/g, ''));
+    return this.timelines
+      .filter((t) => t.request_id === numReqId)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }
+
+  public addTimelineItem(
+    requestId: number | string,
+    title: string,
+    description: string,
+    status: string,
+    icon?: string
+  ): DbRequestTimeline {
+    const numReqId = Number(String(requestId).replace(/\D/g, ''));
+    const item: DbRequestTimeline = {
+      timeline_id: `TL-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      request_id: numReqId,
+      title,
+      description,
+      status,
+      timestamp: new Date().toISOString(),
+      icon
+    };
+    this.timelines.push(item);
+    this.saveToDisk();
+    return item;
+  }
+
+  public getAuditLogs(limit: number = 100): DbAuditLog[] {
+    return this.auditLogs.slice(0, limit);
+  }
+
+  public addAuditLog(entry: Omit<DbAuditLog, 'audit_id' | 'timestamp'>): DbAuditLog {
+    const log: DbAuditLog = {
+      ...entry,
+      audit_id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString()
+    };
+    this.auditLogs.unshift(log);
+    this.saveToDisk();
+    return log;
+  }
+
+  // --- ANALYTICS & INVENTORY INTELLIGENCE ---
+  public getAnalyticsSummary() {
+    const totalRequests = this.bloodRequests.length;
+    const fulfilled = this.bloodRequests.filter(
+      (r) => r.request_status === 'Fulfilled' || r.request_status === 'fulfilled'
+    ).length;
+    const critical = this.bloodRequests.filter((r) => r.urgency_level === 'critical').length;
+    const pendingVerification = this.bloodRequests.filter(
+      (r) => r.verification_status === 'Pending Verification'
+    ).length;
+    const matchingOrReserved = this.bloodRequests.filter(
+      (r) =>
+        r.request_status === 'Matching' ||
+        r.request_status === 'Blood Bank Reserved' ||
+        r.request_status === 'Donor Dispatch'
+    ).length;
+
+    const totalUnitsCoordinated = this.bloodRequests
+      .filter((r) => r.request_status === 'Fulfilled' || r.request_status === 'fulfilled')
+      .reduce((sum, r) => sum + (r.units_required || 1), 0);
+
+    const groupDistribution: Record<string, number> = {};
+    const componentDistribution: Record<string, number> = {};
+
+    for (const r of this.bloodRequests) {
+      groupDistribution[r.blood_group] = (groupDistribution[r.blood_group] || 0) + 1;
+      componentDistribution[r.component] = (componentDistribution[r.component] || 0) + 1;
+    }
+
+    const acceptedDonors = this.donorResponses.filter((d) => d.status === 'ACCEPTED').length;
+    const totalDonorAlerts = this.donorResponses.filter(
+      (d) => d.status === 'ACTIVE_ALERT' || d.status === 'ACCEPTED' || d.status === 'DECLINED'
+    ).length;
+    const donorResponseRate =
+      totalDonorAlerts > 0 ? Math.round((acceptedDonors / totalDonorAlerts) * 100) : 88;
+
+    const bloodBankFulfilled = this.bloodRequests.filter(
+      (r) =>
+        (r.request_status === 'Fulfilled' || r.request_status === 'fulfilled') &&
+        r.assigned_blood_bank_id
+    ).length;
+    const bloodBankFulfillmentRate =
+      fulfilled > 0 ? Math.round((bloodBankFulfilled / fulfilled) * 100) : 92;
+
+    return {
+      totalRequests,
+      fulfilledRequests: fulfilled,
+      criticalRequests: critical,
+      pendingVerification,
+      activeEmergencies: matchingOrReserved,
+      totalUnitsCoordinated,
+      donorResponseRate,
+      bloodBankFulfillmentRate,
+      avgMatchTimeMinutes: 4.2,
+      avgFulfillmentTimeMinutes: 28.5,
+      groupDistribution,
+      componentDistribution,
+      cascadeActivations: this.bloodRequests.filter((r) => (r.cascade_radius_km || 5) > 5).length,
+      donorsRegistered: this.donors.length,
+      bloodBanksRegistered: this.bloodBanks.length,
+      hospitalsRegistered: this.hospitals.length,
+      campsHeld: this.camps.length
+    };
+  }
+
+  public getInventoryIntelligence(bankId?: number | string) {
+    let list = this.inventory;
+    if (bankId) {
+      list = list.filter(
+        (i) => i.bank_name.includes(String(bankId)) || i.inventory_id === Number(bankId)
+      );
+    }
+
+    const criticalLowStock: DbInventory[] = [];
+    const lowStockWarning: DbInventory[] = [];
+    const nearExpiryAlerts: DbInventory[] = [];
+    const surplusStock: DbInventory[] = [];
+
+    const now = Date.now();
+    const sevenDaysMs = 7 * 24 * 3600 * 1000;
+
+    for (const item of list) {
+      const avail = item.units_available !== undefined ? item.units_available : (item.available_quantity || 0);
+      if (avail <= 2) {
+        criticalLowStock.push(item);
+      } else if (avail <= 6) {
+        lowStockWarning.push(item);
+      } else if (avail >= 20) {
+        surplusStock.push(item);
+      }
+
+      if (item.expire_date) {
+        const expTime = new Date(item.expire_date).getTime();
+        if (expTime > now && expTime - now <= sevenDaysMs) {
+          nearExpiryAlerts.push(item);
+        }
+      }
+    }
+
+    return {
+      criticalLowStock,
+      lowStockWarning,
+      nearExpiryAlerts,
+      surplusStock,
+      totalTrackedUnits: list.reduce(
+        (sum, i) => sum + (i.units_available || i.available_quantity || 0),
+        0
+      ),
+      hasInsufficientData: list.length === 0
+    };
+  }
+
   public updateBloodRequest(id: number | string, updates: Partial<DbBloodRequest>) {
     const target = this.getBloodRequestById(id);
     if (target) {
@@ -1253,11 +2209,12 @@ class BloodLinkDatabase {
   public acceptBloodRequest(id: number | string, bloodBankId: string, bloodBankName: string) {
     const target = this.getBloodRequestById(id);
     if (target) {
-      target.request_status = 'confirmed';
+      target.request_status = 'Blood Bank Reserved';
       target.assigned_blood_bank_id = bloodBankId;
       target.assigned_blood_bank_name = bloodBankName;
       target.delivery_status = 'Accepted';
       target.allocated_units = target.units_required;
+      this.confirmInventoryReservation(id, bloodBankId);
       this.saveToDisk();
       return target;
     }
@@ -1271,6 +2228,7 @@ class BloodLinkDatabase {
       if (!rejected.includes(bloodBankId)) {
         target.rejected_by_blood_bank_ids = [...rejected, bloodBankId];
       }
+      this.rejectInventoryReservation(id, bloodBankId, 'Blood bank capacity constraints');
       this.saveToDisk();
       return target;
     }
@@ -1280,9 +2238,15 @@ class BloodLinkDatabase {
   public allocateBloodUnits(id: number | string, units: number) {
     const target = this.getBloodRequestById(id);
     if (target) {
-      target.request_status = 'reserved';
+      target.request_status = 'Blood Bank Reserved';
       target.delivery_status = 'Units Allocated';
       target.allocated_units = units;
+      this.addTimelineItem(
+        id,
+        'Blood Units Allocated',
+        `Blood bank allocated ${units} units for dispatch.`,
+        'Allocated'
+      );
       this.saveToDisk();
       return target;
     }
@@ -1296,6 +2260,12 @@ class BloodLinkDatabase {
       target.delivery_status = 'In Transit';
       target.tracking_number =
         trackingNumber || `TRK-COLD-${Math.floor(100000 + Math.random() * 900000)}`;
+      this.addTimelineItem(
+        id,
+        'Cold-Chain Courier Dispatched',
+        `Dispatch initiated under tracking ${target.tracking_number}. Temperature-regulated cold-chain active (2°C - 6°C).`,
+        'In Transit'
+      );
       this.saveToDisk();
       return target;
     }
@@ -1305,10 +2275,7 @@ class BloodLinkDatabase {
   public receiveBloodSupply(id: number | string) {
     const target = this.getBloodRequestById(id);
     if (target) {
-      target.request_status = 'fulfilled';
-      target.delivery_status = 'Supplied';
-      this.saveToDisk();
-      return target;
+      return this.fulfillBloodRequest(id);
     }
     return null;
   }

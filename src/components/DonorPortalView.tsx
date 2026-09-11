@@ -23,7 +23,8 @@ import {
   Shirt,
   Coffee,
   AlertTriangle,
-  Building2
+  Building2,
+  HeartHandshake
 } from 'lucide-react';
 
 export const DonorPortalView: React.FC = () => {
@@ -39,6 +40,7 @@ export const DonorPortalView: React.FC = () => {
     notifications,
     activeRequests,
     currentUser,
+    respondAsDonor,
     loginUser,
     loginWithGoogle,
     registerUser,
@@ -77,30 +79,30 @@ export const DonorPortalView: React.FC = () => {
     isExistingUser: boolean;
     existingUserData?: any;
   }) => {
-    if (data.isExistingUser) {
-      const res = await loginWithGoogle({
-        email: data.extracted.email,
-        name: data.extracted.name,
-        role: 'donor'
-      });
-      if (!res.success) {
-        setLoginError(res.error || 'Unable to log in with Google account.');
-      }
-    } else {
-      setExtractedGoogleDetails(data.extracted);
-      setFullName(data.extracted.name || '');
-      setEmail(data.extracted.email || '');
-      if (data.extracted.phone) setPhone(data.extracted.phone);
-      if (data.extracted.city) setCity(data.extracted.city);
-      if (data.extracted.bloodGroup && bloodGroups.includes(data.extracted.bloodGroup as any)) {
-        setBloodGroup(data.extracted.bloodGroup as any);
-      }
-      if (!password) {
-        const autoPass = `Donor@${data.extracted.email.split('@')[0]}2026`;
-        setPassword(autoPass);
-        setConfirmPassword(autoPass);
-      }
-      setAuthView('register');
+    setLoginError('');
+    const res = await loginWithGoogle({
+      email: data.extracted.email,
+      name: data.extracted.name,
+      role: 'donor',
+      phone: data.extracted.phone,
+      city: data.extracted.city,
+      blood_group: data.extracted.bloodGroup,
+      autoRegister: true
+    });
+    if (!res.success) {
+      setLoginError(res.error || 'Unable to log in with Google account.');
+      return;
+    }
+    if (res.user && res.user.role !== 'donor') {
+      window.dispatchEvent(
+        new CustomEvent('bloodlink:role-redirect', {
+          detail: {
+            role: res.user.role,
+            userName: res.user.name,
+            message: `Account is registered as ${res.user.role.toUpperCase()}. Redirecting to your authorized dashboard.`
+          }
+        })
+      );
     }
   };
 
@@ -116,6 +118,9 @@ export const DonorPortalView: React.FC = () => {
   const [selectedTshirtSize, setSelectedTshirtSize] = useState('L');
   const [selectedSnack, setSelectedSnack] = useState('Gourmet High-Protein Box');
   const [bookingSuccess, setBookingSuccess] = useState<string | null>(null);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
+  const [emergencyFeedback, setEmergencyFeedback] = useState<{ [reqId: string]: string }>({});
 
   // Listen to cross-component tab triggers (e.g. from Sidebar)
   useEffect(() => {
@@ -185,7 +190,7 @@ export const DonorPortalView: React.FC = () => {
   const handleConfirmSlotBooking = (campId: string) => {
     if (!currentDonor) return;
     if (currentDonor.verificationStatus !== 'Verified') {
-      alert('Verification required: Only verified donors can reserve camp slots.');
+      setBookingError('Verification required: Only verified donors can reserve camp slots.');
       return;
     }
     const ok = registerForCamp(
@@ -200,6 +205,7 @@ export const DonorPortalView: React.FC = () => {
     if (ok) {
       setBookingSuccess(`🎉 Registration Confirmed! Your ${selectedTshirtSize} Hero Tee & ${selectedSnack} are reserved. Your Hero Pass is ready below!`);
       setBookingCampId(null);
+      setBookingError(null);
       setActiveTab('rewards');
       setTimeout(() => setBookingSuccess(null), 6000);
     }
@@ -331,11 +337,19 @@ export const DonorPortalView: React.FC = () => {
                   className="w-full h-11 px-3.5 rounded-lg bg-surface-container-low border border-surface-container focus:border-primary outline-none text-sm text-on-surface"
                 />
               </div>
+              {recoveryNotice && (
+                <div className="p-3 rounded-lg bg-secondary/15 border border-secondary/30 text-secondary text-xs font-semibold">
+                  {recoveryNotice}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => {
-                  alert('Password recovery link dispatched.');
-                  setAuthView('login');
+                  setRecoveryNotice('Password recovery verification PIN dispatched to your email.');
+                  setTimeout(() => {
+                    setRecoveryNotice(null);
+                    setAuthView('login');
+                  }, 2500);
                 }}
                 className="w-full h-11 rounded-lg bg-primary text-on-primary font-semibold text-sm cursor-pointer"
               >
@@ -965,17 +979,45 @@ export const DonorPortalView: React.FC = () => {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          alert(`Contacting ${req.hospitalName} dispatch desk. Thank you for your willingness to donate!`);
-                        }}
-                        className="px-4 py-2 rounded-xl bg-primary text-on-primary text-xs font-bold hover:bg-primary-container transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                        <span>Respond to Hospital</span>
-                      </button>
+                    <div className="flex flex-col sm:items-end gap-2 shrink-0">
+                      {emergencyFeedback[req.id] ? (
+                        <span className="px-3 py-1.5 rounded-lg bg-secondary/15 border border-secondary/30 text-secondary text-xs font-semibold inline-flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>{emergencyFeedback[req.id]}</span>
+                        </span>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const rawId = currentDonor.id.replace(/\D/g, '') || 1;
+                              await respondAsDonor(req.id, rawId, 'ACCEPT');
+                              setEmergencyFeedback((prev) => ({
+                                ...prev,
+                                [req.id]: 'Availability Confirmed: Registered on Standby Queue'
+                              }));
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-secondary text-on-secondary text-xs font-bold hover:opacity-90 transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <HeartHandshake className="w-3.5 h-3.5" />
+                            <span>I Can Donate (Accept Standby)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const rawId = currentDonor.id.replace(/\D/g, '') || 1;
+                              await respondAsDonor(req.id, rawId, 'DECLINE');
+                              setEmergencyFeedback((prev) => ({
+                                ...prev,
+                                [req.id]: 'Declined: Routed to other standby donors'
+                              }));
+                            }}
+                            className="px-3 py-2 rounded-xl border border-surface-container text-on-surface-variant hover:bg-surface-container text-xs font-semibold cursor-pointer"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1222,6 +1264,13 @@ export const DonorPortalView: React.FC = () => {
                   Size <strong>{selectedTshirtSize}</strong> Hero Tee + <strong>{selectedSnack}</strong> + Free 5-Point Health Screen ($65 Value) + Certificate of Honor.
                 </p>
               </div>
+
+              {bookingError && (
+                <div className="p-3 rounded-xl bg-error/10 border border-error/30 text-error text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{bookingError}</span>
+                </div>
+              )}
 
               {/* Modal Footer */}
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-surface-container">

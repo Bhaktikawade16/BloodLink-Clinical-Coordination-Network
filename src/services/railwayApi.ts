@@ -108,6 +108,27 @@ export interface RailwayBloodRequest {
   created_at: string;
   requested_by_name?: string;
   hospital_name?: string;
+  ward_department?: string;
+  doctor_name?: string;
+  doctor_authorized_person?: string;
+  requisition_doc_name?: string;
+  additional_notes?: string;
+  patient_diagnosis?: string;
+  delivery_status?: string;
+  allocated_units?: number;
+  fulfilled_units?: number;
+  tracking_number?: string;
+  assigned_blood_bank_id?: string;
+  assigned_blood_bank_name?: string;
+  reservation_requested_at?: string;
+  reservation_expires_at?: string;
+  reservation_confirmed_at?: string;
+  cascade_radius_km?: number;
+  cascade_stage?: string;
+  verified_at?: string;
+  verified_by?: string;
+  fulfilled_at?: string;
+  rejection_reason?: string;
 }
 
 export interface CreateBloodRequestPayload {
@@ -122,6 +143,14 @@ export interface CreateBloodRequestPayload {
   location: string;
   latitude?: number;
   longitude?: number;
+  hospital_name?: string;
+  patient_diagnosis?: string;
+  ward_department?: string;
+  doctor_name?: string;
+  doctor_authorized_person?: string;
+  requisition_doc_name?: string;
+  additional_notes?: string;
+  requested_by_name?: string;
 }
 
 export const RailwayApi = {
@@ -563,6 +592,210 @@ export const RailwayApi = {
     const res = await fetch(`${baseUrl}/api/admin/stats`, {
       headers: { Accept: 'application/json' }
     });
+    return res.json();
+  },
+
+  /**
+   * Verify an emergency blood requisition (Doctor/Medical Authority)
+   */
+  async verifyBloodRequest(
+    requestId: number | string,
+    verifiedBy: string = 'Medical Authority',
+    notes?: string
+  ): Promise<any> {
+    const baseUrl = getActiveDatabaseUrl();
+    const numId = Number(String(requestId).replace(/\D/g, ''));
+    const res = await fetch(`${baseUrl}/api/blood-requests/${numId}/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ verified_by: verifiedBy, notes })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to verify requisition: HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Reject clinical verification of blood requisition
+   */
+  async rejectVerification(
+    requestId: number | string,
+    rejectedBy: string = 'Medical Authority',
+    reason?: string
+  ): Promise<any> {
+    const baseUrl = getActiveDatabaseUrl();
+    const numId = Number(String(requestId).replace(/\D/g, ''));
+    const res = await fetch(`${baseUrl}/api/blood-requests/${numId}/reject-verification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ rejected_by: rejectedBy, reason })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to reject requisition: HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Get Smart Matching results for a requisition
+   */
+  async getSmartMatches(requestId: number | string): Promise<any> {
+    const baseUrl = getActiveDatabaseUrl();
+    const numId = Number(String(requestId).replace(/\D/g, ''));
+    const res = await fetch(`${baseUrl}/api/blood-requests/${numId}/matches`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to fetch matching results: HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Blood bank confirms 7-minute reservation
+   */
+  async confirmReservation(requestId: number | string, bloodBankId?: string | number): Promise<any> {
+    const baseUrl = getActiveDatabaseUrl();
+    const numId = Number(String(requestId).replace(/\D/g, ''));
+    const res = await fetch(`${baseUrl}/api/blood-requests/${numId}/confirm-reservation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ blood_bank_id: bloodBankId })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to confirm reservation: HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Blood bank declines 7-minute reservation (triggers automatic standby donor mobilization)
+   */
+  async rejectReservation(
+    requestId: number | string,
+    bloodBankId?: string | number,
+    reason?: string
+  ): Promise<any> {
+    const baseUrl = getActiveDatabaseUrl();
+    const numId = Number(String(requestId).replace(/\D/g, ''));
+    const res = await fetch(`${baseUrl}/api/blood-requests/${numId}/reject-reservation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ blood_bank_id: bloodBankId, reason })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to reject reservation: HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Donor accepts or declines emergency alert
+   */
+  async recordDonorResponse(
+    requestId: number | string,
+    donorId: number | string,
+    response: 'ACCEPT' | 'DECLINE'
+  ): Promise<any> {
+    const baseUrl = getActiveDatabaseUrl();
+    const numId = Number(String(requestId).replace(/\D/g, ''));
+    const res = await fetch(`${baseUrl}/api/blood-requests/${numId}/donor-response`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ donor_id: donorId, response })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to record donor response: HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Get requisition audit and clinical tracking timeline
+   */
+  async getRequestTimeline(requestId: number | string): Promise<any[]> {
+    const baseUrl = getActiveDatabaseUrl();
+    const numId = Number(String(requestId).replace(/\D/g, ''));
+    const res = await fetch(`${baseUrl}/api/blood-requests/${numId}/timeline`);
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  /**
+   * Issue blood units from inventory for a requisition
+   */
+  async issueBloodUnits(
+    requestId: number | string,
+    inventoryId: number | string,
+    units: number
+  ): Promise<any> {
+    const baseUrl = getActiveDatabaseUrl();
+    const numId = Number(String(requestId).replace(/\D/g, ''));
+    const res = await fetch(`${baseUrl}/api/blood-requests/${numId}/issue-units`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ inventory_id: inventoryId, units })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to issue blood units: HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Cancel requisition
+   */
+  async cancelBloodRequest(requestId: number | string, reason?: string): Promise<any> {
+    const baseUrl = getActiveDatabaseUrl();
+    const numId = Number(String(requestId).replace(/\D/g, ''));
+    const res = await fetch(`${baseUrl}/api/blood-requests/${numId}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ reason })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to cancel request: HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+
+  /**
+   * Get real-time system analytics summary
+   */
+  async getAnalytics(): Promise<any> {
+    const baseUrl = getActiveDatabaseUrl();
+    const res = await fetch(`${baseUrl}/api/admin/analytics`);
+    if (!res.ok) throw new Error('Failed to fetch analytics');
+    return res.json();
+  },
+
+  /**
+   * Get audit log trail
+   */
+  async getAuditLogs(limit: number = 100): Promise<any[]> {
+    const baseUrl = getActiveDatabaseUrl();
+    const res = await fetch(`${baseUrl}/api/admin/audit-logs?limit=${limit}`);
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  /**
+   * Get inventory intelligence, expiry warnings & low stock
+   */
+  async getInventoryIntelligence(bankId?: number | string): Promise<any> {
+    const baseUrl = getActiveDatabaseUrl();
+    const url = bankId
+      ? `${baseUrl}/api/inventory/intelligence?bank_id=${bankId}`
+      : `${baseUrl}/api/inventory/intelligence`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch inventory intelligence');
     return res.json();
   }
 };

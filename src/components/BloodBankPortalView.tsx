@@ -40,6 +40,8 @@ export const BloodBankPortalView: React.FC = () => {
     rejectHospitalRequest,
     allocateUnitsForRequest,
     dispatchBloodSupply,
+    confirmReservation,
+    rejectReservation,
     loginUser,
     loginWithGoogle,
     registerUser,
@@ -77,42 +79,36 @@ export const BloodBankPortalView: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [regError, setRegError] = useState('');
+  const [recoveryNotice, setRecoveryNotice] = useState('');
 
   const handleGoogleSuccess = async (data: {
     extracted: any;
     isExistingUser: boolean;
     existingUserData?: any;
   }) => {
-    if (data.isExistingUser) {
-      const res = await loginWithGoogle({
-        email: data.extracted.email,
-        name: data.extracted.name,
-        role: 'blood_bank'
-      });
-      if (!res.success) {
-        setLoginError(res.error || 'Unable to log in with Google account.');
-      }
-    } else {
-      setExtractedGoogleDetails(data.extracted);
-      setContactPerson(data.extracted.name || '');
-      setEmail(data.extracted.email || '');
-      if (data.extracted.organization) {
-        setBankName(data.extracted.organization);
-      } else if (!bankName) {
-        setBankName(`${data.extracted.name} Blood Bank`);
-      }
-      if (data.extracted.phone) setPhone(data.extracted.phone);
-      if (data.extracted.city) {
-        setCity(data.extracted.city);
-        if (!address) setAddress(`${data.extracted.city} Regional Depot`);
-      }
-      if (!licenceNumber) setLicenceNumber(`BB-LIC-${Math.floor(1000 + Math.random() * 9000)}`);
-      if (!password) {
-        const autoPass = `Bank@${data.extracted.email.split('@')[0]}2026`;
-        setPassword(autoPass);
-        setConfirmPassword(autoPass);
-      }
-      setAuthView('register');
+    setLoginError('');
+    const res = await loginWithGoogle({
+      email: data.extracted.email,
+      name: data.extracted.name,
+      role: 'blood_bank',
+      phone: data.extracted.phone,
+      city: data.extracted.city,
+      autoRegister: true
+    });
+    if (!res.success) {
+      setLoginError(res.error || 'Unable to log in with Google account.');
+      return;
+    }
+    if (res.user && res.user.role !== 'blood_bank') {
+      window.dispatchEvent(
+        new CustomEvent('bloodlink:role-redirect', {
+          detail: {
+            role: res.user.role,
+            userName: res.user.name,
+            message: `Account is registered as ${res.user.role.toUpperCase()}. Redirecting to your authorized dashboard.`
+          }
+        })
+      );
     }
   };
 
@@ -317,11 +313,19 @@ export const BloodBankPortalView: React.FC = () => {
                   className="w-full h-11 px-3.5 rounded-lg bg-surface-container-low border border-surface-container outline-none text-sm text-on-surface"
                 />
               </div>
+              {recoveryNotice && (
+                <div className="p-3 rounded-lg bg-secondary/15 border border-secondary/30 text-secondary text-xs font-semibold">
+                  {recoveryNotice}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => {
-                  alert('Reset PIN dispatched.');
-                  setAuthView('login');
+                  setRecoveryNotice('Emergency reset PIN dispatched to authorized institutional email.');
+                  setTimeout(() => {
+                    setRecoveryNotice('');
+                    setAuthView('login');
+                  }, 2500);
                 }}
                 className="w-full h-11 rounded-lg bg-primary text-on-primary font-semibold text-sm cursor-pointer"
               >
@@ -998,6 +1002,37 @@ export const BloodBankPortalView: React.FC = () => {
                       {/* Case 4: ASSIGNED TO THIS BLOOD BANK -> Progress Supply Stages */}
                       {isAssignedToThis && (
                         <>
+                          {/* 7-Minute Reservation Window Active */}
+                          {req.status === 'Blood Bank Reserved' && (
+                            <div className="flex items-center gap-2">
+                              <span className="px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-600 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1">
+                                <Clock className="w-3.5 h-3.5 animate-spin" />
+                                <span>7-Min Reservation Locked</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await confirmReservation(req.id, currentBloodBank.id);
+                                  setSuccessMsg(`Reservation for ${req.id} confirmed. Units locked for ${req.hospitalName}.`);
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-secondary hover:opacity-90 text-on-secondary text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Confirm Reservation</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await rejectReservation(req.id, currentBloodBank.id, 'Repository stock prioritized for trauma cases');
+                                  setSuccessMsg(`Reservation released. Request ${req.id} cascaded to network.`);
+                                }}
+                                className="px-2.5 py-1.5 rounded-lg border border-surface-container hover:bg-surface-container-high text-on-surface-variant text-xs font-medium cursor-pointer"
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          )}
+
                           {/* Sub-stage A: Confirmed -> Need to Allocate Units */}
                           {(req.status === 'Confirmed' || req.deliveryStatus === 'Accepted') && (
                             <button
