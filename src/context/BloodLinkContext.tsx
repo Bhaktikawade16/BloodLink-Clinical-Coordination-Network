@@ -21,6 +21,7 @@ import {
 } from '../services/railwayApi';
 import { INITIAL_CAMPS } from '../data/mockData';
 import { hashPassword, calculateDonorEligibility } from '../utils/authUtils';
+import { logoutGoogle } from '../services/googleAuthService';
 
 interface BloodLinkContextType {
   // Unified Role-Based Auth Session
@@ -99,6 +100,13 @@ interface BloodLinkContextType {
   activeRequests: EmergencyRequisition[];
   createEmergencyRequest: (req: Omit<EmergencyRequisition, 'id' | 'timestamp' | 'status'>) => EmergencyRequisition;
   updateRequestStatus: (reqId: string, status: EmergencyRequisition['status']) => void;
+  verifyRequisition: (reqId: string, verifiedBy: string, notes?: string) => Promise<boolean>;
+  rejectRequisitionVerification: (reqId: string, rejectedBy: string, reason?: string) => Promise<boolean>;
+  confirmReservation: (reqId: string, bloodBankId?: string | number) => Promise<boolean>;
+  rejectReservation: (reqId: string, bloodBankId?: string | number, reason?: string) => Promise<boolean>;
+  respondAsDonor: (reqId: string, donorId: number | string, response: 'ACCEPT' | 'DECLINE') => Promise<boolean>;
+  issueUnits: (reqId: string, inventoryId: string | number, units: number) => Promise<boolean>;
+  cancelRequisition: (reqId: string, reason?: string) => Promise<boolean>;
   acceptHospitalRequest: (reqId: string, bloodBankId: string, bloodBankName: string) => void;
   rejectHospitalRequest: (reqId: string, bloodBankId: string) => void;
   allocateUnitsForRequest: (reqId: string, bloodBankId: string, units: number) => void;
@@ -482,19 +490,12 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               ? 'CRITICAL'
               : r.urgency_level.toLowerCase() === 'urgent'
               ? 'URGENT'
-              : 'STANDARD';
-
-          const statusTitle =
-            r.request_status.toLowerCase() === 'fulfilled'
-              ? 'Allocated'
-              : r.request_status.toLowerCase() === 'dispatched'
-              ? 'Dispatched'
-              : 'Matching';
+              : 'ROUTINE';
 
           return {
             id: `REQ-${r.request_id}`,
             hospitalName: r.hospital_name || r.location || 'Ruby Hall Clinic',
-            department: 'Emergency & Critical Care',
+            department: r.ward_department || 'Emergency & Critical Care',
             bloodGroup: (r.blood_group as BloodGroup) || 'O-',
             component: compTitle as any,
             units: r.units_required,
@@ -504,7 +505,29 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             timestamp: r.created_at
               ? new Date(r.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               : 'Recent',
-            status: statusTitle as any
+            status: (r.request_status as any) || 'Pending Verification',
+            deliveryStatus: (r.delivery_status as any) || 'Pending Verification',
+            verificationStatus: (r.verification_status as any) || 'Pending Verification',
+            patientDiagnosis: r.patient_diagnosis,
+            wardDepartment: r.ward_department,
+            doctorName: r.doctor_name,
+            doctorAuthorizedPerson: r.doctor_authorized_person,
+            requisitionDocName: r.requisition_doc_name,
+            additionalNotes: r.additional_notes,
+            allocatedUnits: r.allocated_units || 0,
+            fulfilledUnits: r.fulfilled_units || 0,
+            assignedBloodBankId: r.assigned_blood_bank_id ? String(r.assigned_blood_bank_id) : undefined,
+            assignedBloodBankName: r.assigned_blood_bank_name,
+            trackingNumber: r.tracking_number,
+            reservationRequestedAt: r.reservation_requested_at,
+            reservationExpiresAt: r.reservation_expires_at,
+            reservationConfirmedAt: r.reservation_confirmed_at,
+            cascadeRadiusKm: r.cascade_radius_km || 5,
+            cascadeStage: r.cascade_stage || '5km',
+            verifiedAt: r.verified_at,
+            verifiedBy: r.verified_by,
+            fulfilledAt: r.fulfilled_at,
+            rejectionReason: r.rejection_reason
           };
         });
 
@@ -667,8 +690,29 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return false;
   };
 
-  const logoutDonor = () => {
+  const logoutUser = async () => {
+    try {
+      await logoutGoogle();
+    } catch (err) {
+      console.warn('Google logout notice:', err);
+    }
+    setCurrentUser(null);
     setCurrentDonor(null);
+    setCurrentHospital(null);
+    setCurrentBloodBank(null);
+    setCurrentOrganizer(null);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_DONOR);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_HOSPITAL);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_BLOOD_BANK);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_ORGANIZER);
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.clear();
+    }
+  };
+
+  const logoutDonor = () => {
+    void logoutUser();
   };
 
   const updateDonorAvailability = (isAvailable: boolean) => {
@@ -746,7 +790,7 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const logoutHospital = () => {
-    setCurrentHospital(null);
+    void logoutUser();
   };
 
   const setCurrentHospitalById = (id: string) => {
@@ -817,7 +861,7 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const logoutBloodBank = () => {
-    setCurrentBloodBank(null);
+    void logoutUser();
   };
 
   const setCurrentBloodBankById = (id: string) => {
@@ -850,7 +894,7 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   };
 
   const logoutOrganizer = () => {
-    setCurrentOrganizer(null);
+    void logoutUser();
   };
 
   const createCamp = (campData: Omit<BloodCamp, 'id' | 'registeredCount' | 'status'>) => {
@@ -976,15 +1020,21 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       ...reqData,
       id: tempId,
       timestamp: 'Just now',
-      status: 'Matching'
+      status: 'Pending Verification',
+      verificationStatus: 'Pending Verification',
+      deliveryStatus: 'Pending Verification',
+      allocatedUnits: 0,
+      fulfilledUnits: 0,
+      cascadeRadiusKm: 5,
+      cascadeStage: '5km'
     };
     setActiveRequests((prev) => [newReq, ...prev]);
 
     // Also dispatch a clinical notification
     const alertNotif: ClinicalNotification = {
       id: `NOTIF-${Date.now()}`,
-      title: `${reqData.urgency}: ${reqData.units} Units of ${reqData.bloodGroup} Needed`,
-      message: `${reqData.hospitalName} has initiated an emergency order for ${reqData.component}.`,
+      title: `Emergency Requisition #${tempId} Logged`,
+      message: `${reqData.hospitalName} created requisition for ${reqData.units} units of ${reqData.bloodGroup} ${reqData.component}. Queued for clinical verification.`,
       time: 'Just now',
       isUrgent: reqData.urgency === 'CRITICAL',
       type: 'alert'
@@ -1001,7 +1051,8 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const cLower = reqData.component.toLowerCase();
         if (cLower.includes('platelet')) compApi = 'platelets';
         else if (cLower.includes('plasma')) compApi = 'plasma';
-        else if (cLower.includes('cryo')) compApi = 'whole_blood';
+        else if (cLower.includes('cryo')) compApi = 'cryoprecipitate';
+        else if (cLower.includes('prbc') || cLower.includes('red blood')) compApi = 'prbc';
         else compApi = 'whole_blood';
 
         const created = await RailwayApi.createBloodRequest({
@@ -1012,7 +1063,14 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           units_required: reqData.units,
           urgency_level: reqData.urgency.toLowerCase(),
           required_by: new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' '),
-          location: reqData.hospitalName
+          location: reqData.hospitalName,
+          hospital_name: reqData.hospitalName,
+          patient_diagnosis: reqData.patientDiagnosis || 'Emergency blood deficit',
+          ward_department: reqData.wardDepartment || 'Emergency / Trauma OT',
+          doctor_name: reqData.doctorName || 'Dr. On-Duty Specialist',
+          doctor_authorized_person: reqData.doctorAuthorizedPerson || 'Medical Director',
+          requisition_doc_name: reqData.requisitionDocName || 'Signed_Requisition_Form.pdf',
+          additional_notes: reqData.additionalNotes || ''
         });
 
         if (created?.request_id) {
@@ -1027,6 +1085,181 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     })();
 
     return newReq;
+  };
+
+  const verifyRequisition = async (reqId: string, verifiedBy: string, notes?: string): Promise<boolean> => {
+    try {
+      const res = await RailwayApi.verifyBloodRequest(reqId, verifiedBy, notes);
+      if (res?.request) {
+        setActiveRequests((prev) =>
+          prev.map((r) =>
+            r.id === reqId || r.id === `REQ-${res.request.request_id}`
+              ? {
+                  ...r,
+                  status: res.request.request_status,
+                  verificationStatus: 'Verified',
+                  deliveryStatus: res.request.delivery_status,
+                  verifiedBy,
+                  verifiedAt: res.request.verified_at,
+                  assignedBloodBankId: res.request.assigned_blood_bank_id,
+                  assignedBloodBankName: res.request.assigned_blood_bank_name,
+                  reservationRequestedAt: res.request.reservation_requested_at,
+                  reservationExpiresAt: res.request.reservation_expires_at,
+                  cascadeRadiusKm: res.request.cascade_radius_km,
+                  cascadeStage: res.request.cascade_stage
+                }
+              : r
+          )
+        );
+      }
+      return true;
+    } catch (e: any) {
+      console.warn('verifyRequisition error:', e.message);
+      return false;
+    }
+  };
+
+  const rejectRequisitionVerification = async (reqId: string, rejectedBy: string, reason?: string): Promise<boolean> => {
+    try {
+      const res = await RailwayApi.rejectVerification(reqId, rejectedBy, reason);
+      if (res?.request) {
+        setActiveRequests((prev) =>
+          prev.map((r) =>
+            r.id === reqId || r.id === `REQ-${res.request.request_id}`
+              ? {
+                  ...r,
+                  status: 'Cancelled',
+                  verificationStatus: 'Rejected',
+                  deliveryStatus: 'Rejected',
+                  rejectionReason: reason
+                }
+              : r
+          )
+        );
+      }
+      return true;
+    } catch (e: any) {
+      console.warn('rejectRequisitionVerification error:', e.message);
+      return false;
+    }
+  };
+
+  const confirmReservation = async (reqId: string, bloodBankId?: string | number): Promise<boolean> => {
+    try {
+      const res = await RailwayApi.confirmReservation(reqId, bloodBankId);
+      if (res?.request) {
+        setActiveRequests((prev) =>
+          prev.map((r) =>
+            r.id === reqId || r.id === `REQ-${res.request.request_id}`
+              ? {
+                  ...r,
+                  status: res.request.request_status,
+                  deliveryStatus: res.request.delivery_status,
+                  reservationConfirmedAt: res.request.reservation_confirmed_at,
+                  allocatedUnits: res.request.allocated_units
+                }
+              : r
+          )
+        );
+      }
+      return true;
+    } catch (e: any) {
+      console.warn('confirmReservation error:', e.message);
+      return false;
+    }
+  };
+
+  const rejectReservation = async (reqId: string, bloodBankId?: string | number, reason?: string): Promise<boolean> => {
+    try {
+      const res = await RailwayApi.rejectReservation(reqId, bloodBankId, reason);
+      if (res?.request) {
+        setActiveRequests((prev) =>
+          prev.map((r) =>
+            r.id === reqId || r.id === `REQ-${res.request.request_id}`
+              ? {
+                  ...r,
+                  status: res.request.request_status,
+                  deliveryStatus: res.request.delivery_status,
+                  cascadeRadiusKm: res.request.cascade_radius_km,
+                  cascadeStage: res.request.cascade_stage
+                }
+              : r
+          )
+        );
+      }
+      return true;
+    } catch (e: any) {
+      console.warn('rejectReservation error:', e.message);
+      return false;
+    }
+  };
+
+  const respondAsDonor = async (reqId: string, donorId: number | string, response: 'ACCEPT' | 'DECLINE'): Promise<boolean> => {
+    try {
+      const res = await RailwayApi.recordDonorResponse(reqId, donorId, response);
+      if (res?.request) {
+        setActiveRequests((prev) =>
+          prev.map((r) =>
+            r.id === reqId || r.id === `REQ-${res.request.request_id}`
+              ? { ...r, deliveryStatus: res.request.delivery_status }
+              : r
+          )
+        );
+      }
+      return true;
+    } catch (e: any) {
+      console.warn('respondAsDonor error:', e.message);
+      return false;
+    }
+  };
+
+  const issueUnits = async (reqId: string, inventoryId: string | number, units: number): Promise<boolean> => {
+    try {
+      const res = await RailwayApi.issueBloodUnits(reqId, inventoryId, units);
+      if (res?.request) {
+        setActiveRequests((prev) =>
+          prev.map((r) =>
+            r.id === reqId || r.id === `REQ-${res.request.request_id}`
+              ? {
+                  ...r,
+                  status: res.request.request_status,
+                  deliveryStatus: res.request.delivery_status,
+                  fulfilledUnits: res.request.fulfilled_units,
+                  fulfilledAt: res.request.fulfilled_at
+                }
+              : r
+          )
+        );
+      }
+      return true;
+    } catch (e: any) {
+      console.warn('issueUnits error:', e.message);
+      return false;
+    }
+  };
+
+  const cancelRequisition = async (reqId: string, reason?: string): Promise<boolean> => {
+    try {
+      const res = await RailwayApi.cancelBloodRequest(reqId, reason);
+      if (res?.request) {
+        setActiveRequests((prev) =>
+          prev.map((r) =>
+            r.id === reqId || r.id === `REQ-${res.request.request_id}`
+              ? {
+                  ...r,
+                  status: 'Cancelled',
+                  deliveryStatus: 'Cancelled',
+                  rejectionReason: reason
+                }
+              : r
+          )
+        );
+      }
+      return true;
+    } catch (e: any) {
+      console.warn('cancelRequisition error:', e.message);
+      return false;
+    }
   };
 
   const updateRequestStatus = (reqId: string, status: EmergencyRequisition['status']) => {
@@ -1359,8 +1592,15 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const authUser: AuthSessionUser = data.user;
       setCurrentUser(authUser);
 
-      // Sync role-specific current user
+      // Sync role-specific current user and ensure all other roles are strictly cleared
       if (authUser.role === 'donor') {
+        setCurrentHospital(null);
+        setCurrentBloodBank(null);
+        setCurrentOrganizer(null);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_HOSPITAL);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_BLOOD_BANK);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_ORGANIZER);
+
         let matched = donors.find((d) => d.email === authUser.email || d.phone === authUser.phone);
         if (!matched) {
           matched = {
@@ -1381,6 +1621,13 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
         setCurrentDonor(matched);
       } else if (authUser.role === 'hospital') {
+        setCurrentDonor(null);
+        setCurrentBloodBank(null);
+        setCurrentOrganizer(null);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_DONOR);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_BLOOD_BANK);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_ORGANIZER);
+
         let matched = hospitals.find((h) => h.email === authUser.email || h.phone === authUser.phone);
         if (!matched) {
           matched = {
@@ -1399,6 +1646,13 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
         setCurrentHospital(matched);
       } else if (authUser.role === 'blood_bank') {
+        setCurrentDonor(null);
+        setCurrentHospital(null);
+        setCurrentOrganizer(null);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_DONOR);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_HOSPITAL);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_ORGANIZER);
+
         let matched = bloodBanks.find((b) => b.email === authUser.email || b.phone === authUser.phone);
         if (!matched) {
           matched = {
@@ -1417,6 +1671,13 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
         setCurrentBloodBank(matched);
       } else if (authUser.role === 'blood_camp') {
+        setCurrentDonor(null);
+        setCurrentHospital(null);
+        setCurrentBloodBank(null);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_DONOR);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_HOSPITAL);
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_BLOOD_BANK);
+
         let matched = organizers.find((o) => o.email === authUser.email || o.phone === authUser.phone);
         if (!matched) {
           matched = {
@@ -1464,6 +1725,13 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setCurrentUser(authUser);
 
         if (authUser.role === 'donor') {
+          setCurrentHospital(null);
+          setCurrentBloodBank(null);
+          setCurrentOrganizer(null);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_HOSPITAL);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_BLOOD_BANK);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_ORGANIZER);
+
           let matched = donors.find((d) => d.email === authUser.email || d.phone === authUser.phone);
           if (!matched) {
             matched = {
@@ -1487,6 +1755,13 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           }
           setCurrentDonor(matched);
         } else if (authUser.role === 'hospital') {
+          setCurrentDonor(null);
+          setCurrentBloodBank(null);
+          setCurrentOrganizer(null);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_DONOR);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_BLOOD_BANK);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_ORGANIZER);
+
           let matched = hospitals.find((h) => h.email === authUser.email || h.phone === authUser.phone);
           if (!matched) {
             matched = {
@@ -1506,6 +1781,13 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           }
           setCurrentHospital(matched);
         } else if (authUser.role === 'blood_bank') {
+          setCurrentDonor(null);
+          setCurrentHospital(null);
+          setCurrentOrganizer(null);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_DONOR);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_HOSPITAL);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_ORGANIZER);
+
           let matched = bloodBanks.find((b) => b.email === authUser.email || b.phone === authUser.phone);
           if (!matched) {
             matched = {
@@ -1525,6 +1807,13 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           }
           setCurrentBloodBank(matched);
         } else if (authUser.role === 'blood_camp') {
+          setCurrentDonor(null);
+          setCurrentHospital(null);
+          setCurrentBloodBank(null);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_DONOR);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_HOSPITAL);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_BLOOD_BANK);
+
           let matched = organizers.find((o) => o.email === authUser.email || o.phone === authUser.phone);
           if (!matched) {
             matched = {
@@ -1550,19 +1839,6 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (err: any) {
       return { success: false, error: err.message || 'Google login error' };
     }
-  };
-
-  const logoutUser = () => {
-    setCurrentUser(null);
-    setCurrentDonor(null);
-    setCurrentHospital(null);
-    setCurrentBloodBank(null);
-    setCurrentOrganizer(null);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_DONOR);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_HOSPITAL);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_BLOOD_BANK);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_ORGANIZER);
   };
 
   const updateVerificationStatus = async (
@@ -1705,6 +1981,13 @@ export const BloodLinkProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         activeRequests,
         createEmergencyRequest,
         updateRequestStatus,
+        verifyRequisition,
+        rejectRequisitionVerification,
+        confirmReservation,
+        rejectReservation,
+        respondAsDonor,
+        issueUnits,
+        cancelRequisition,
         acceptHospitalRequest,
         rejectHospitalRequest,
         allocateUnitsForRequest,

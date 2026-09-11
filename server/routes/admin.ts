@@ -8,6 +8,17 @@ adminRouter.get('/stats', (req, res) => {
   res.json(db.getStatus());
 });
 
+// GET /api/admin/analytics - real-time coordination and impact analytics
+adminRouter.get('/analytics', (req, res) => {
+  res.json(db.getAnalyticsSummary());
+});
+
+// GET /api/admin/audit-logs - clinical and operational audit trail
+adminRouter.get('/audit-logs', (req, res) => {
+  const limit = req.query.limit ? Number(req.query.limit) : 100;
+  res.json(db.getAuditLogs(limit));
+});
+
 // POST /api/admin/verify - approve or reject entity
 adminRouter.post('/verify', (req, res) => {
   const { type, id, status } = req.body;

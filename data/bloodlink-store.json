@@ -1,6 +1,42 @@
 {
   "users": [
     {
+      "user_id": 9,
+      "name": "Bhakti Kawade",
+      "email": "bhaktikawade61@gmail.com",
+      "phone": "9876500000",
+      "password_hash": "GOOGLE_OAUTH_AUTHENTICATED",
+      "role": "donor",
+      "city": "Pune",
+      "latitude": 18.5204,
+      "longitude": 73.8567,
+      "created_at": "2026-09-10T18:12:54.875Z"
+    },
+    {
+      "user_id": 8,
+      "name": "Test Check",
+      "email": "test.check@gmail.com",
+      "phone": "9876500000",
+      "password_hash": "GOOGLE_OAUTH_AUTHENTICATED",
+      "role": "donor",
+      "city": "Pune",
+      "latitude": 18.5204,
+      "longitude": 73.8567,
+      "created_at": "2026-09-10T18:07:15.103Z"
+    },
+    {
+      "user_id": 7,
+      "name": "Dr. Test Physician",
+      "email": "doctor.test@hospital.org",
+      "phone": "9876500000",
+      "password_hash": "GOOGLE_OAUTH_AUTHENTICATED",
+      "role": "hospital",
+      "city": "Pune",
+      "latitude": 18.5204,
+      "longitude": 73.8567,
+      "created_at": "2026-09-10T16:58:41.499Z"
+    },
+    {
       "user_id": 6,
       "name": "Bhakti Kawade",
       "email": "bhaktikawade3@gmail.com",
@@ -74,6 +110,50 @@
     }
   ],
   "donors": [
+    {
+      "donor_id": 7,
+      "user_id": 9,
+      "name": "Anonymous Donor",
+      "phone": "0000000000",
+      "city": "Pune",
+      "blood_group": "O+",
+      "date_of_birth": "1998-01-01",
+      "gender": "Not specified",
+      "weight_kg": 65,
+      "eligibility_status": "Eligible",
+      "verification_status": "Verified",
+      "last_donation_date": null,
+      "email": "",
+      "age": 25,
+      "area": "",
+      "state": "Maharashtra",
+      "donation_count": 0,
+      "is_available": true,
+      "available_for_emergency": true,
+      "history": []
+    },
+    {
+      "donor_id": 6,
+      "user_id": 8,
+      "name": "Anonymous Donor",
+      "phone": "0000000000",
+      "city": "Pune",
+      "blood_group": "O+",
+      "date_of_birth": "1998-01-01",
+      "gender": "Not specified",
+      "weight_kg": 65,
+      "eligibility_status": "Eligible",
+      "verification_status": "Verified",
+      "last_donation_date": null,
+      "email": "",
+      "age": 25,
+      "area": "",
+      "state": "Maharashtra",
+      "donation_count": 0,
+      "is_available": true,
+      "available_for_emergency": true,
+      "history": []
+    },
     {
       "donor_id": 5,
       "user_id": 6,
@@ -156,6 +236,21 @@
     }
   ],
   "hospitals": [
+    {
+      "hospital_id": 5,
+      "user_id": 7,
+      "hospital_name": "Dr. Test Physician Medical Care",
+      "registration_number": "REG-HOSP-521500",
+      "address": "Pune Metro Area",
+      "verification_status": "Verified",
+      "contact_person": "",
+      "email": "",
+      "phone": "",
+      "city": "Pune",
+      "state": "Maharashtra",
+      "licence_document_name": "",
+      "created_at": "2026-09-10T16:58:41.500Z"
+    },
     {
       "hospital_id": 4,
       "user_id": 14,
@@ -462,5 +557,9 @@
       "id": "NOTIF-1789018452560-110"
     }
   ],
-  "updatedAt": "2026-09-10T08:22:55.634Z"
+  "reservations": [],
+  "timelines": [],
+  "donorResponses": [],
+  "auditLogs": [],
+  "updatedAt": "2026-09-10T18:12:54.875Z"
 }

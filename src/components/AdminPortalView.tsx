@@ -53,6 +53,7 @@ export const AdminPortalView: React.FC = () => {
   const [inputUrl, setInputUrl] = useState(databaseUrl);
   const [urlStatusMsg, setUrlStatusMsg] = useState<string | null>(null);
   const [selectedDbTable, setSelectedDbTable] = useState<'donors' | 'hospitals' | 'bloodBanks' | 'camps' | 'inventory' | 'requests'>('hospitals');
+  const [confirmResetState, setConfirmResetState] = useState(false);
 
   // Combine institutional applications
   const pendingHospitals = hospitals.filter((h) => h.status === 'Verification Pending');
@@ -110,18 +111,35 @@ export const AdminPortalView: React.FC = () => {
         </div>
 
         {/* System Reset Button */}
-        <button
-          onClick={() => {
-            if (window.confirm('Reset all portal records to a pristine empty state?')) {
-              resetDatabase();
-            }
-          }}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-xs font-semibold text-on-surface-variant hover:text-error transition-colors cursor-pointer shrink-0"
-          title="Reset database to 100% empty state"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Reset Empty State</span>
-        </button>
+        {confirmResetState ? (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                resetDatabase();
+                setConfirmResetState(false);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-error text-on-error hover:bg-error-container text-xs font-bold transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Confirm Wipe Database?</span>
+            </button>
+            <button
+              onClick={() => setConfirmResetState(false)}
+              className="px-2.5 py-2 rounded-lg border border-surface-container text-xs text-on-surface-variant hover:bg-surface-container cursor-pointer"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmResetState(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-xs font-semibold text-on-surface-variant hover:text-error transition-colors cursor-pointer shrink-0"
+            title="Reset database to 100% empty state"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset Empty State</span>
+          </button>
+        )}
       </div>
 
       {/* Railway PostgreSQL Database Live Integration Card */}

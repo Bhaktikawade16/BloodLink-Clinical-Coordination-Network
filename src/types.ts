@@ -19,21 +19,35 @@ export type BloodComponent =
 export type UrgencyLevel = 'CRITICAL' | 'URGENT' | 'ROUTINE';
 
 export type RequisitionStatus =
-  | 'Submitted'
+  | 'Pending Verification'
+  | 'Verified'
   | 'Matching'
+  | 'Blood Bank Reserved'
+  | 'Donor Dispatch'
   | 'Confirmed'
   | 'Reserved'
   | 'Approved'
   | 'Dispatched'
-  | 'Received';
+  | 'Fulfilled'
+  | 'Cancelled'
+  | 'Received'
+  | 'Submitted';
 
 export type DeliverySupplyStatus =
+  | 'Pending Verification'
+  | 'Verified & Matching'
+  | 'Awaiting Blood Bank Confirmation'
+  | 'Reservation Confirmed — Preparing Dispatch'
+  | 'Emergency Donors Mobilized'
   | 'Awaiting Acceptance'
   | 'Accepted'
   | 'Units Allocated'
   | 'In Transit'
   | 'Supplied'
-  | 'Withdrawn';
+  | 'Supplied & Closed'
+  | 'Withdrawn'
+  | 'Rejected'
+  | 'Cancelled';
 
 export interface BloodUnit {
   id: string;
@@ -60,9 +74,26 @@ export interface EmergencyRequisition {
   assignedBloodBankName?: string;
   rejectedByBloodBankIds?: string[];
   allocatedUnits?: number;
+  fulfilledUnits?: number;
   deliveryStatus?: DeliverySupplyStatus;
   trackingNumber?: string;
   patientDiagnosis?: string;
+  wardDepartment?: string;
+  doctorName?: string;
+  doctorAuthorizedPerson?: string;
+  requisitionDocName?: string;
+  additionalNotes?: string;
+  verificationStatus?: 'Pending Verification' | 'Verified' | 'Rejected';
+  verifiedBy?: string;
+  verifiedAt?: string;
+  rejectionReason?: string;
+  reservationRequestedAt?: string;
+  reservationExpiresAt?: string;
+  reservationConfirmedAt?: string;
+  donorDispatchStartedAt?: string;
+  cascadeRadiusKm?: number;
+  cascadeStage?: string;
+  fulfilledAt?: string;
 }
 
 export interface BloodCamp {

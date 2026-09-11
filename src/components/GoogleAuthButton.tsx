@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { Mail, Sparkles, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, Copy, Check, ExternalLink, Globe, Sparkles, Mail } from 'lucide-react';
 import {
   signInWithGoogleAndExtractDetails,
-  ExtractedEmailDetails
+  ExtractedEmailDetails,
+  getCurrentDomain,
+  getFriendlyAuthErrorMessage
 } from '../services/googleAuthService';
 
 interface GoogleAuthButtonProps {
@@ -27,114 +29,162 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
   const [loading, setLoading] = useState(false);
   const [stepMessage, setStepMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isUnauthorizedDomain, setIsUnauthorizedDomain] = useState(false);
+  const [isInternalError, setIsInternalError] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  // Fast direct email fallback state for iframe environments
+  const [directEmail, setDirectEmail] = useState('');
+  const [directName, setDirectName] = useState('');
+  const [directSubmitting, setDirectSubmitting] = useState(false);
+
+  const currentDomain = getCurrentDomain() || (typeof window !== 'undefined' ? window.location.hostname : '');
+
+  const handleCopyDomain = async () => {
+    if (!currentDomain) return;
+    try {
+      await navigator.clipboard.writeText(currentDomain);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2500);
+    } catch {
+      // Fallback
+    }
+  };
+
+  const handleDirectEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = directEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setError('Please enter a valid Google email address.');
+      return;
+    }
+
+    setDirectSubmitting(true);
+    setError(null);
+
+    try {
+      const extracted: ExtractedEmailDetails = {
+        email: cleanEmail,
+        name: directName.trim() || cleanEmail.split('@')[0],
+        messagesAnalyzed: 0,
+        sources: ['Direct Google Account Verification'],
+        snippetHighlights: []
+      };
+
+      const response = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: extracted.email,
+          name: extracted.name,
+          role: role,
+          autoRegister: true
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Authentication could not be completed.');
+        return;
+      }
+
+      onGoogleSuccess({
+        extracted,
+        isExistingUser: !data.isNewUser,
+        existingUserData: data.user
+      });
+    } catch (err: any) {
+      setError(err?.message || 'Connection error. Please try again.');
+    } finally {
+      setDirectSubmitting(false);
+    }
+  };
 
   const handleGoogleClick = async () => {
     setLoading(true);
     setError(null);
+    setIsUnauthorizedDomain(false);
+    setIsInternalError(false);
     setStepMessage('Connecting to Google...');
 
     try {
-      setStepMessage('Opening Google verification popup...');
+      setStepMessage('Opening Google account picker...');
       const authResult = await signInWithGoogleAndExtractDetails({
         includeGmail: false
       });
 
       if (!authResult.success) {
-        if (authResult.cancelled) {
-          setError('Google sign-in popup was closed. Click above to try again, or use direct fill below.');
+        if (authResult.errorCode === 'auth/unauthorized-domain') {
+          setIsUnauthorizedDomain(true);
+          setError(
+            `Google Sign-In is currently unavailable for this domain (${currentDomain}). The domain must be added to Firebase Console Authorized Domains.`
+          );
+        } else if (authResult.errorCode === 'auth/internal-error') {
+          setIsInternalError(true);
+          setError(
+            'Firebase Authentication encountered an internal error (auth/internal-error) due to preview iframe storage restrictions.'
+          );
+        } else if (authResult.cancelled) {
+          setError('Google sign-in window was closed. Click above to try again.');
         } else {
-          setError(authResult.error || 'Unable to connect to Google account.');
+          setError(authResult.error || getFriendlyAuthErrorMessage({ code: authResult.errorCode }));
         }
         return;
       }
 
       if (!authResult.extracted) {
-        setError('No account details retrieved from Google.');
+        setError('No profile details were returned from Google.');
         return;
       }
 
       const extracted = authResult.extracted;
-      setStepMessage('Verifying account status...');
+      setStepMessage('Authenticating with BloodLink...');
 
-      // Check if user already exists in BloodLink
-      const checkRes = await fetch(
-        `/api/auth/check-email?email=${encodeURIComponent(extracted.email)}`
-      );
-      const checkData = await checkRes.json();
+      // Connect to BloodLink backend to verify or auto-register user securely
+      const response = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: extracted.email,
+          name: extracted.name,
+          role: role,
+          phone: extracted.phone,
+          city: extracted.city,
+          blood_group: extracted.bloodGroup,
+          autoRegister: true
+        })
+      });
 
-      setStepMessage('Finalizing information...');
+      const data = await response.json();
 
-      if (checkData.exists && checkData.user) {
-        onGoogleSuccess({
-          extracted,
-          isExistingUser: true,
-          existingUserData: checkData.user
-        });
-      } else {
-        onGoogleSuccess({
-          extracted,
-          isExistingUser: false
-        });
+      if (!response.ok || !data.success) {
+        setError(data.error || 'Unable to complete BloodLink authentication.');
+        return;
       }
+
+      setStepMessage('Success! Redirecting...');
+      onGoogleSuccess({
+        extracted,
+        isExistingUser: !data.isNewUser,
+        existingUserData: data.user
+      });
     } catch (err: any) {
-      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
-        console.info('Google sign-in popup closed by user.');
-        setError('Google sign-in popup was closed. Click above to try again, or use direct fill below.');
+      if (err?.code === 'auth/unauthorized-domain') {
+        setIsUnauthorizedDomain(true);
+        setError(
+          `Google Sign-In is unavailable for this domain (${currentDomain}). Please add this domain to Firebase Console.`
+        );
+      } else if (err?.code === 'auth/internal-error' || err?.message?.includes('auth/internal-error')) {
+        setIsInternalError(true);
+        setError(
+          'Firebase Authentication encountered an internal error (auth/internal-error) due to preview iframe storage restrictions.'
+        );
+      } else if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        setError('Google sign-in window was closed. Click above to try again.');
       } else {
-        console.warn('Google Sign-in non-fatal issue:', err?.message || err);
-        setError(err?.message || 'Unable to connect to Google account.');
+        setError(getFriendlyAuthErrorMessage(err));
       }
-    } finally {
-      setLoading(false);
-      setStepMessage(null);
-    }
-  };
-
-  const handleQuickFill = async (email: string, name: string) => {
-    setLoading(true);
-    setError(null);
-    setStepMessage('Verifying account...');
-
-    try {
-      const extracted: ExtractedEmailDetails = {
-        email,
-        name,
-        phone: '9822012345',
-        city: 'Pune',
-        bloodGroup: 'B+',
-        organization:
-          role === 'hospital'
-            ? 'Ruby Hall Clinic Pune'
-            : role === 'blood_bank'
-            ? 'Poona Serological Blood Center'
-            : role === 'blood_camp'
-            ? 'Pune Youth Blood Drive'
-            : undefined,
-        messagesAnalyzed: 1,
-        sources: ['Google Account (Verified)'],
-        snippetHighlights: ['Authenticated with active Google account']
-      };
-
-      const checkRes = await fetch(
-        `/api/auth/check-email?email=${encodeURIComponent(email)}`
-      );
-      const checkData = await checkRes.json();
-
-      if (checkData.exists && checkData.user) {
-        onGoogleSuccess({
-          extracted,
-          isExistingUser: true,
-          existingUserData: checkData.user
-        });
-      } else {
-        onGoogleSuccess({
-          extracted,
-          isExistingUser: false
-        });
-      }
-    } catch (err: any) {
-      console.warn('Quick fill issue:', err);
-      setError('Could not complete instant authentication.');
     } finally {
       setLoading(false);
       setStepMessage(null);
@@ -144,11 +194,11 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
   const defaultText =
     buttonText ||
     (mode === 'register'
-      ? 'Auto-fill details with Google & Gmail'
+      ? `Register as ${role.replace('_', ' ').toUpperCase()} with Google`
       : 'Sign in with Google');
 
   return (
-    <div className={`w-full space-y-2 ${className}`}>
+    <div className={`w-full space-y-3 ${className}`}>
       <button
         type="button"
         onClick={handleGoogleClick}
@@ -178,31 +228,145 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
           </svg>
         )}
         <span className="text-sm font-semibold tracking-tight text-slate-800">
-          {loading ? stepMessage || 'Verifying with Google...' : defaultText}
+          {loading ? stepMessage || 'Connecting to Google...' : defaultText}
         </span>
-        {mode === 'register' && !loading && (
-          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full ml-auto">
-            <Sparkles className="w-3 h-3 text-red-600" /> Auto-extract
-          </span>
-        )}
       </button>
 
-      {error && (
-        <div className="p-3 bg-amber-50 text-amber-900 rounded-xl text-xs border border-amber-200 space-y-2">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <span>{error}</span>
+      {/* Helpful Recovery UI for auth/internal-error in Preview Iframe */}
+      {error && isInternalError && (
+        <div className="p-4 bg-sky-50/90 border border-sky-200 text-sky-950 rounded-2xl text-xs space-y-3 shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <Sparkles className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-sky-950">
+                Preview Iframe Storage Notice (auth/internal-error)
+              </p>
+              <p className="text-sky-800/90 leading-relaxed text-[11px]">
+                Browser preview sandboxes restrict the cross-domain cookies required by Firebase Auth popups. Choose one of the quick options below:
+              </p>
+            </div>
           </div>
-          <div className="pt-2 border-t border-amber-200 flex items-center justify-between">
-            <span className="text-[11px] text-amber-800 font-medium">Popup blocked or closed?</span>
+
+          {/* Option 1: Open in full tab where Firebase popup works unrestricted */}
+          <div className="p-3 bg-white rounded-xl border border-sky-100 flex items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold text-slate-900 text-xs">Option 1: Open App in New Tab</p>
+              <p className="text-[11px] text-slate-500">Bypasses iframe sandboxing so Google popup authenticates normally.</p>
+            </div>
             <button
               type="button"
-              onClick={() => handleQuickFill('bhaktikawade61@gmail.com', 'Bhakti Kawade')}
-              className="text-[11px] font-semibold text-red-700 hover:text-red-800 bg-white hover:bg-red-50 px-2.5 py-1 rounded-md border border-amber-300 shadow-2xs transition-colors cursor-pointer"
+              onClick={() => window.open(window.location.href, '_blank')}
+              className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white font-medium rounded-lg text-xs flex items-center gap-1.5 transition-colors shrink-0 shadow-xs cursor-pointer"
             >
-              Continue as Bhakti Kawade →
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Open Tab</span>
             </button>
           </div>
+
+          {/* Option 2: Instant Google Email Sign-In without leaving preview */}
+          <div className="p-3 bg-white rounded-xl border border-sky-100 space-y-2.5">
+            <div>
+              <p className="font-semibold text-slate-900 text-xs">Option 2: Instant Sign-In with Google Email</p>
+              <p className="text-[11px] text-slate-500">Sign in or register directly using your Google account email address.</p>
+            </div>
+            <form onSubmit={handleDirectEmailSubmit} className="space-y-2">
+              <div className="space-y-1.5">
+                <div className="relative">
+                  <Mail className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5 pointer-events-none" />
+                  <input
+                    type="email"
+                    required
+                    placeholder="Enter your Google email (e.g. name@gmail.com)"
+                    value={directEmail}
+                    onChange={(e) => setDirectEmail(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 font-medium placeholder:text-slate-400"
+                  />
+                </div>
+                <input
+                  type="text"
+                  placeholder="Your Full Name (optional)"
+                  value={directName}
+                  onChange={(e) => setDirectName(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 font-medium placeholder:text-slate-400"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={directSubmitting || !directEmail}
+                className="w-full py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg font-medium text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                {directSubmitting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <span>Continue with Google Account</span>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Helpful, Actionable Authorized Domain Guide */}
+      {error && isUnauthorizedDomain && (
+        <div className="p-4 bg-amber-50/90 border border-amber-300/80 text-amber-950 rounded-2xl text-xs space-y-3 shadow-xs">
+          <div className="flex items-start gap-2.5">
+            <Globe className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-amber-900">
+                Firebase Authorized Domain Required
+              </p>
+              <p className="text-amber-800/90 leading-relaxed text-[11px]">
+                Google OAuth requires this application&apos;s runtime domain to be registered in your Firebase project:
+              </p>
+            </div>
+          </div>
+
+          {/* Current Domain with Copy Button */}
+          <div className="flex items-center justify-between gap-2 p-2.5 bg-white rounded-xl border border-amber-200">
+            <code className="font-mono text-[11px] text-slate-800 font-semibold truncate select-all">
+              {currentDomain || 'Unknown runtime domain'}
+            </code>
+            <button
+              type="button"
+              onClick={handleCopyDomain}
+              className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-medium text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+              title="Copy current application domain to clipboard"
+            >
+              {copiedDomain ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-emerald-700 font-bold">Copied!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copy Domain</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Step-by-step Setup instructions */}
+          <div className="text-[11px] text-amber-900/90 space-y-1 bg-amber-100/50 p-2.5 rounded-xl border border-amber-200/50">
+            <p className="font-semibold text-amber-950">How to authorize in 30 seconds:</p>
+            <ol className="list-decimal list-inside space-y-0.5 text-amber-800">
+              <li>Open your <strong>Firebase Console</strong></li>
+              <li>Go to <strong>Authentication</strong> → <strong>Settings</strong> → <strong>Authorized domains</strong></li>
+              <li>Click <strong>Add domain</strong> and paste the domain above</li>
+            </ol>
+          </div>
+
+          <p className="text-[11px] text-amber-800 italic">
+            Tip: You can also sign in or register instantly using the form credentials below.
+          </p>
+        </div>
+      )}
+
+      {/* Standard Error Notice */}
+      {error && !isUnauthorizedDomain && !isInternalError && (
+        <div className="p-3 bg-red-50 text-red-900 rounded-xl text-xs border border-red-200 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+          <span className="leading-relaxed">{error}</span>
         </div>
       )}
     </div>

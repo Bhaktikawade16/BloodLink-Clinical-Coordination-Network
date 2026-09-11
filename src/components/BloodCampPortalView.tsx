@@ -56,38 +56,35 @@ export const BloodCampPortalView: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [regError, setRegError] = useState('');
+  const [recoveryNotice, setRecoveryNotice] = useState('');
 
   const handleGoogleSuccess = async (data: {
     extracted: any;
     isExistingUser: boolean;
     existingUserData?: any;
   }) => {
-    if (data.isExistingUser) {
-      const res = await loginWithGoogle({
-        email: data.extracted.email,
-        name: data.extracted.name,
-        role: 'camp_organizer'
-      });
-      if (!res.success) {
-        setLoginError(res.error || 'Unable to log in with Google account.');
-      }
-    } else {
-      setExtractedGoogleDetails(data.extracted);
-      setOrganizerName(data.extracted.name || '');
-      setEmail(data.extracted.email || '');
-      if (data.extracted.organization) {
-        setOrgName(data.extracted.organization);
-      } else if (!orgName) {
-        setOrgName(`${data.extracted.name} Community Blood Drive`);
-      }
-      if (data.extracted.phone) setPhone(data.extracted.phone);
-      if (!taxId) setTaxId(`NGO-MH-${Math.floor(1000 + Math.random() * 9000)}`);
-      if (!password) {
-        const autoPass = `Camp@${data.extracted.email.split('@')[0]}2026`;
-        setPassword(autoPass);
-        setConfirmPassword(autoPass);
-      }
-      setAuthView('register');
+    setLoginError('');
+    const res = await loginWithGoogle({
+      email: data.extracted.email,
+      name: data.extracted.name,
+      role: 'blood_camp',
+      phone: data.extracted.phone,
+      autoRegister: true
+    });
+    if (!res.success) {
+      setLoginError(res.error || 'Unable to log in with Google account.');
+      return;
+    }
+    if (res.user && res.user.role !== 'blood_camp') {
+      window.dispatchEvent(
+        new CustomEvent('bloodlink:role-redirect', {
+          detail: {
+            role: res.user.role,
+            userName: res.user.name,
+            message: `Account is registered as ${res.user.role.toUpperCase()}. Redirecting to your authorized dashboard.`
+          }
+        })
+      );
     }
   };
 
@@ -300,11 +297,19 @@ export const BloodCampPortalView: React.FC = () => {
                   className="w-full h-11 px-3.5 rounded-lg bg-surface-container-low border border-surface-container outline-none text-sm text-on-surface"
                 />
               </div>
+              {recoveryNotice && (
+                <div className="p-3 rounded-lg bg-secondary/15 border border-secondary/30 text-secondary text-xs font-semibold">
+                  {recoveryNotice}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => {
-                  alert('Reset token dispatched.');
-                  setAuthView('login');
+                  setRecoveryNotice('Emergency reset token dispatched to authorized organizer email.');
+                  setTimeout(() => {
+                    setRecoveryNotice('');
+                    setAuthView('login');
+                  }, 2500);
                 }}
                 className="w-full h-11 rounded-lg bg-primary text-on-primary font-semibold text-sm cursor-pointer"
               >

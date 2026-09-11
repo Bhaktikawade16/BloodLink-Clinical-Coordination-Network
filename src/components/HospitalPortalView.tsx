@@ -10,6 +10,7 @@ import { useBloodLink } from '../context/BloodLinkContext';
 import { BloodLinkVerificationCard } from './BloodLinkVerificationCard';
 import { GoogleAuthButton } from './GoogleAuthButton';
 import { GoogleDetailsBanner } from './GoogleDetailsBanner';
+import { RequisitionMatchModal } from './RequisitionMatchModal';
 import {
   Building2,
   AlertCircle,
@@ -55,7 +56,9 @@ export const HospitalPortalView: React.FC = () => {
     loginUser,
     loginWithGoogle,
     registerUser,
-    updateVerificationStatus
+    updateVerificationStatus,
+    verifyRequisition,
+    rejectRequisitionVerification
   } = useBloodLink();
 
   // Authentication view: 'login' | 'register' | 'forgot'
@@ -82,42 +85,36 @@ export const HospitalPortalView: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [regError, setRegError] = useState('');
+  const [recoveryNotice, setRecoveryNotice] = useState('');
 
   const handleGoogleSuccess = async (data: {
     extracted: any;
     isExistingUser: boolean;
     existingUserData?: any;
   }) => {
-    if (data.isExistingUser) {
-      const res = await loginWithGoogle({
-        email: data.extracted.email,
-        name: data.extracted.name,
-        role: 'hospital'
-      });
-      if (!res.success) {
-        setLoginError(res.error || 'Unable to log in with Google account.');
-      }
-    } else {
-      setExtractedGoogleDetails(data.extracted);
-      setContactPerson(data.extracted.name || '');
-      setEmail(data.extracted.email || '');
-      if (data.extracted.organization) {
-        setHospName(data.extracted.organization);
-      } else if (!hospName) {
-        setHospName(`${data.extracted.name} Memorial Hospital`);
-      }
-      if (data.extracted.phone) setPhone(data.extracted.phone);
-      if (data.extracted.city) {
-        setCity(data.extracted.city);
-        if (!address) setAddress(`${data.extracted.city} Central Medical Enclave`);
-      }
-      if (!licenceNumber) setLicenceNumber(`MH-HOSP-${Math.floor(1000 + Math.random() * 9000)}`);
-      if (!password) {
-        const autoPass = `Hosp@${data.extracted.email.split('@')[0]}2026`;
-        setPassword(autoPass);
-        setConfirmPassword(autoPass);
-      }
-      setAuthView('register');
+    setLoginError('');
+    const res = await loginWithGoogle({
+      email: data.extracted.email,
+      name: data.extracted.name,
+      role: 'hospital',
+      phone: data.extracted.phone,
+      city: data.extracted.city,
+      autoRegister: true
+    });
+    if (!res.success) {
+      setLoginError(res.error || 'Unable to log in with Google account.');
+      return;
+    }
+    if (res.user && res.user.role !== 'hospital') {
+      window.dispatchEvent(
+        new CustomEvent('bloodlink:role-redirect', {
+          detail: {
+            role: res.user.role,
+            userName: res.user.name,
+            message: `Account is registered as ${res.user.role.toUpperCase()}. Redirecting to your authorized dashboard.`
+          }
+        })
+      );
     }
   };
 
@@ -137,6 +134,16 @@ export const HospitalPortalView: React.FC = () => {
   const [unitCount, setUnitCount] = useState<number>(3);
   const [selectedUrgency, setSelectedUrgency] = useState<UrgencyLevel>('CRITICAL');
   const [requestSuccess, setRequestSuccess] = useState<string | null>(null);
+
+  // Verified Emergency Requisition Clinical Fields
+  const [patientId, setPatientId] = useState('');
+  const [patientDiagnosis, setPatientDiagnosis] = useState('');
+  const [wardDepartment, setWardDepartment] = useState('');
+  const [doctorName, setDoctorName] = useState('');
+  const [doctorAuthorizedPerson, setDoctorAuthorizedPerson] = useState('');
+  const [requisitionDocName, setRequisitionDocName] = useState<string | null>(null);
+  const [additionalNotes, setAdditionalNotes] = useState('');
+  const [selectedRequisitionForModal, setSelectedRequisitionForModal] = useState<EmergencyRequisition | null>(null);
 
   const bloodGroups: BloodGroup[] = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
   const components: { title: BloodComponent; desc: string }[] = [
@@ -200,11 +207,18 @@ export const HospitalPortalView: React.FC = () => {
       bloodGroup: selectedGroup,
       component: selectedComponent,
       units: unitCount,
-      urgency: selectedUrgency
+      urgency: selectedUrgency,
+      patientId: patientId.trim() || `PT-${Math.floor(1000 + Math.random() * 9000)}`,
+      patientDiagnosis: patientDiagnosis.trim() || 'Acute blood volume deficit / Trauma resuscitation',
+      wardDepartment: wardDepartment.trim() || 'Emergency / Trauma OT',
+      doctorName: doctorName.trim() || currentHospital.contactPerson || 'Dr. On-Duty Specialist',
+      doctorAuthorizedPerson: doctorAuthorizedPerson.trim() || 'Hospital Transfusion Committee',
+      requisitionDocName: requisitionDocName || 'Hospital_Signed_Requisition.pdf',
+      additionalNotes: additionalNotes.trim() || ''
     });
     setModalOpen(false);
-    setRequestSuccess(`Emergency order for ${unitCount} units of ${selectedGroup} broadcast to verified blood banks.`);
-    setTimeout(() => setRequestSuccess(null), 5000);
+    setRequestSuccess(`Emergency order for ${unitCount} units of ${selectedGroup} logged and initialized in matching pipeline.`);
+    setTimeout(() => setRequestSuccess(null), 6000);
     setDashTab('active');
   };
 
@@ -346,11 +360,19 @@ export const HospitalPortalView: React.FC = () => {
                   className="w-full h-11 px-3.5 rounded-lg bg-surface-container-low border border-surface-container outline-none text-sm text-on-surface"
                 />
               </div>
+              {recoveryNotice && (
+                <div className="p-3 rounded-lg bg-secondary/15 border border-secondary/30 text-secondary text-xs font-semibold">
+                  {recoveryNotice}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => {
-                  alert('Reset token dispatched.');
-                  setAuthView('login');
+                  setRecoveryNotice('Emergency reset token dispatched to authorized institutional email.');
+                  setTimeout(() => {
+                    setRecoveryNotice('');
+                    setAuthView('login');
+                  }, 2500);
                 }}
                 className="w-full h-11 rounded-lg bg-primary text-on-primary font-semibold text-sm cursor-pointer"
               >
@@ -872,7 +894,38 @@ export const HospitalPortalView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* BLOOD SUPPLY / FULFILLMENT BANNER */}
+                  {/* Clinical Details & Transfusion Reference */}
+                  <div className="p-3 rounded-xl bg-surface-container-low border border-surface-container grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-on-surface-variant block">Patient / Case</span>
+                      <span className="font-semibold text-on-surface">{req.patientId || 'Pending Patient Ref'}</span>
+                      <span className="text-[11px] text-on-surface-variant block truncate">{req.patientDiagnosis || 'Emergency Blood Deficit'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-on-surface-variant block">Ward / Doctor</span>
+                      <span className="font-semibold text-on-surface">{req.wardDepartment || 'Emergency / Trauma'}</span>
+                      <span className="text-[11px] text-on-surface-variant block truncate">{req.doctorName || currentHospital.contactPerson || 'Specialist On-Duty'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-on-surface-variant block">Clinical Verification</span>
+                      {req.verificationStatus === 'Verified' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-secondary">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Doctor Authorized</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                          <Clock className="w-3.5 h-3.5 animate-spin" />
+                          <span>Pending Verification</span>
+                        </span>
+                      )}
+                      <span className="text-[10px] text-on-surface-variant block">
+                        {req.cascadeStage ? `Cascade: ${req.cascadeStage}` : 'Direct Match Engine'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* BLOOD SUPPLY / FULFILLMENT BANNER & PIPELINE BUTTONS */}
                   <div className="pt-2 border-t border-surface-container flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                     {req.assignedBloodBankName ? (
                       <div className="flex items-center gap-2 text-secondary">
@@ -887,12 +940,38 @@ export const HospitalPortalView: React.FC = () => {
                       <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
                         <Activity className="w-4 h-4 shrink-0 animate-pulse" />
                         <span>
-                          Broadcasting to regional blood banks. Awaiting initial acceptance to lock order.
+                          Broadcasting to regional blood banks. 7-min reserve window and donor standby armed.
                         </span>
                       </div>
                     )}
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* View Matches & Pipeline Modal */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRequisitionForModal(req)}
+                        className="px-3.5 py-1.5 rounded-lg bg-surface-container-high hover:bg-surface-container text-on-surface text-xs font-bold transition-all cursor-pointer border border-surface-container flex items-center gap-1.5"
+                      >
+                        <Zap className="w-3.5 h-3.5 text-primary" />
+                        <span>View Matching &amp; 7-Min Pipeline</span>
+                      </button>
+
+                      {/* Doctor Sign-off if pending verification */}
+                      {req.verificationStatus === 'Pending Verification' && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await verifyRequisition(req.id, currentHospital.contactPerson || 'Dr. On-Duty Specialist', 'Authorized by hospital emergency trauma desk');
+                            setRequestSuccess(`Requisition ${req.id} clinically authorized. Smart matching locked.`);
+                            setTimeout(() => setRequestSuccess(null), 5000);
+                          }}
+                          className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>Authorize (Doctor Sign-off)</span>
+                        </button>
+                      )}
+
                       {/* If dispatched, hospital can confirm receipt to close request */}
                       {req.status === 'Dispatched' && (
                         <button
@@ -915,10 +994,10 @@ export const HospitalPortalView: React.FC = () => {
                             setDonorGroupFilter(req.bloodGroup);
                             setDashTab('donors');
                           }}
-                          className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-container text-on-primary text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
+                          className="px-3.5 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5"
                         >
-                          <HeartHandshake className="w-3.5 h-3.5" />
-                          <span>Search Emergency Donors for {req.bloodGroup}</span>
+                          <HeartHandshake className="w-3.5 h-3.5 text-primary" />
+                          <span>Standby Donors ({req.bloodGroup})</span>
                         </button>
                       )}
                     </div>
@@ -1411,51 +1490,142 @@ export const HospitalPortalView: React.FC = () => {
               </div>
             )}
 
-            {/* STEP 4: Urgency */}
+            {/* STEP 4: Urgency & Clinical Requisition Details */}
             {reqStep === 4 && (
-              <div className="space-y-4">
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
                 <div>
-                  <h4 className="text-sm font-bold text-on-surface">Step 4: Clinical Urgency Level</h4>
+                  <h4 className="text-sm font-bold text-on-surface">Step 4: Clinical Urgency & Patient Details</h4>
                   <p className="text-xs text-on-surface-variant mt-0.5">
-                    Select dispatch priority and routing alert channels.
+                    Enter clinical context and attending physician sign-off for protocol compliance.
                   </p>
                 </div>
-                <div className="space-y-2.5">
-                  {(['CRITICAL', 'URGENT', 'ROUTINE'] as UrgencyLevel[]).map((level) => {
-                    const isSelected = selectedUrgency === level;
-                    const desc =
-                      level === 'CRITICAL'
-                        ? 'Immediate dispatch (< 25 mins). Active trauma or operating theater emergency.'
-                        : level === 'URGENT'
-                        ? 'Dispatch within 2 hours. Post-operative stabilization or acute labor.'
-                        : 'Routine delivery. Scheduled elective surgeries within 24 hours.';
-                    return (
-                      <button
-                        key={level}
-                        type="button"
-                        onClick={() => setSelectedUrgency(level)}
-                        className={`w-full p-4 rounded-xl border text-left cursor-pointer transition-all ${
-                          isSelected
-                            ? 'border-primary bg-primary/10 text-primary shadow-xs'
-                            : 'border-surface-container bg-surface-container-low text-on-surface hover:bg-surface-container'
-                        }`}
-                      >
-                        <span className="block text-sm font-bold uppercase">{level}</span>
-                        <span className="block text-xs text-on-surface-variant mt-0.5">{desc}</span>
-                      </button>
-                    );
-                  })}
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                    Dispatch Priority *
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['CRITICAL', 'URGENT', 'ROUTINE'] as UrgencyLevel[]).map((level) => {
+                      const isSelected = selectedUrgency === level;
+                      return (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => setSelectedUrgency(level)}
+                          className={`p-3 rounded-xl border text-center cursor-pointer transition-all ${
+                            isSelected
+                              ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
+                              : 'border-surface-container bg-surface-container-low text-on-surface hover:bg-surface-container text-xs'
+                          }`}
+                        >
+                          <span className="block text-xs uppercase">{level}</span>
+                          <span className="block text-[10px] text-on-surface-variant mt-0.5">
+                            {level === 'CRITICAL' ? '< 25m TAT' : level === 'URGENT' ? '< 2h TAT' : '< 24h'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-xs font-semibold text-on-surface-variant mb-1">
+                      Patient Reference / MRN *
+                    </label>
+                    <input
+                      type="text"
+                      value={patientId}
+                      onChange={(e) => setPatientId(e.target.value)}
+                      placeholder="e.g. PT-2026-9842"
+                      className="w-full h-9 px-3 rounded-lg bg-surface-container-low border border-surface-container text-xs text-on-surface"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-on-surface-variant mb-1">
+                      Ward / Department / OT *
+                    </label>
+                    <input
+                      type="text"
+                      value={wardDepartment}
+                      onChange={(e) => setWardDepartment(e.target.value)}
+                      placeholder="e.g. Emergency OT #2 / Trauma ICU"
+                      className="w-full h-9 px-3 rounded-lg bg-surface-container-low border border-surface-container text-xs text-on-surface"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-on-surface-variant mb-1">
+                      Attending Doctor Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={doctorName}
+                      onChange={(e) => setDoctorName(e.target.value)}
+                      placeholder={currentHospital?.contactPerson || 'e.g. Dr. A. Sharma'}
+                      className="w-full h-9 px-3 rounded-lg bg-surface-container-low border border-surface-container text-xs text-on-surface"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-on-surface-variant mb-1">
+                      Transfusion Authority / Sign-off
+                    </label>
+                    <input
+                      type="text"
+                      value={doctorAuthorizedPerson}
+                      onChange={(e) => setDoctorAuthorizedPerson(e.target.value)}
+                      placeholder="e.g. Chief of Anesthesiology / Trauma Lead"
+                      className="w-full h-9 px-3 rounded-lg bg-surface-container-low border border-surface-container text-xs text-on-surface"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-on-surface-variant mb-1">
+                    Clinical Indication / Diagnosis
+                  </label>
+                  <input
+                    type="text"
+                    value={patientDiagnosis}
+                    onChange={(e) => setPatientDiagnosis(e.target.value)}
+                    placeholder="e.g. Severe polytrauma, massive hemorrhagic shock"
+                    className="w-full h-9 px-3 rounded-lg bg-surface-container-low border border-surface-container text-xs text-on-surface"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-on-surface-variant mb-1">
+                    Signed Clinical Requisition Form (PDF or Scanned Slip)
+                  </label>
+                  <label className="border border-dashed border-surface-container rounded-xl p-3 flex items-center justify-center gap-2 bg-surface-container-low hover:bg-surface-container cursor-pointer transition-colors text-xs text-on-surface-variant">
+                    <input
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setRequisitionDocName(e.target.files[0].name);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    <UploadCloud className="w-4 h-4 text-primary shrink-0" />
+                    <span className="font-semibold text-on-surface truncate">
+                      {requisitionDocName ? `Attached: ${requisitionDocName}` : 'Attach signed doctor slip or blood requisition order (optional)'}
+                    </span>
+                  </label>
                 </div>
               </div>
             )}
 
             {/* STEP 5: Confirm Request */}
             {reqStep === 5 && (
-              <div className="space-y-4">
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
                 <div>
-                  <h4 className="text-sm font-bold text-on-surface">Step 5: Confirm &amp; Broadcast Requisition</h4>
+                  <h4 className="text-sm font-bold text-on-surface">Step 5: Confirm &amp; Initiate Smart Match Pipeline</h4>
                   <p className="text-xs text-on-surface-variant mt-0.5">
-                    Review clinical parameters before transmitting emergency order.
+                    Review clinical parameters before broadcasting to blood bank cold-chains and standby donors.
                   </p>
                 </div>
 
@@ -1473,19 +1643,31 @@ export const HospitalPortalView: React.FC = () => {
                     <span className="font-semibold text-on-surface">{selectedComponent}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-surface-container">
-                    <span className="text-on-surface-variant">Quantity</span>
+                    <span className="text-on-surface-variant">Dosage</span>
                     <span className="font-bold text-on-surface">{unitCount} Units</span>
                   </div>
-                  <div className="flex justify-between py-1">
+                  <div className="flex justify-between py-1 border-b border-surface-container">
                     <span className="text-on-surface-variant">Urgency</span>
                     <span className="font-bold uppercase text-primary">{selectedUrgency}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-surface-container">
+                    <span className="text-on-surface-variant">Patient Reference</span>
+                    <span className="font-mono text-on-surface">{patientId || 'Pending MRN'}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-surface-container">
+                    <span className="text-on-surface-variant">Ward / OT</span>
+                    <span className="text-on-surface">{wardDepartment || 'Emergency Resuscitation'}</span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-on-surface-variant">Attending Doctor</span>
+                    <span className="font-semibold text-on-surface">{doctorName || currentHospital.contactPerson || 'Specialist On-Duty'}</span>
                   </div>
                 </div>
 
                 {/* Matching Blood Banks check */}
                 <div className="space-y-2">
                   <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
-                    Potential Local Blood Bank Matches
+                    Automated Smart Matching Pipeline
                   </span>
                   {(() => {
                     const matchingUnits = inventory.filter(
@@ -1493,14 +1675,14 @@ export const HospitalPortalView: React.FC = () => {
                     );
                     if (matchingUnits.length === 0) {
                       return (
-                        <div className="p-3 rounded-lg bg-surface-container-low text-xs text-on-surface-variant">
-                          No matching verified blood banks found in the immediate area. Broadcast will ping all regional hubs.
+                        <div className="p-3 rounded-lg bg-surface-container-low text-xs text-on-surface-variant border border-surface-container">
+                          No instant repository stock. System will immediately arm 5km cascade and mobilize verified standby donors.
                         </div>
                       );
                     }
                     return (
-                      <div className="p-3 rounded-lg bg-secondary/10 text-xs text-secondary font-medium">
-                        Found {matchingUnits.length} verified {selectedGroup} units available across repository network.
+                      <div className="p-3 rounded-lg bg-secondary/10 text-xs text-secondary font-medium border border-secondary/20">
+                        Smart Match located {matchingUnits.length} verified {selectedGroup} units in local repositories. 7-minute reservation lock will engage upon authorization.
                       </div>
                     );
                   })()}
@@ -1551,6 +1733,14 @@ export const HospitalPortalView: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Smart Match & 7-Minute Reservation Pipeline Modal */}
+      {selectedRequisitionForModal && (
+        <RequisitionMatchModal
+          requisition={selectedRequisitionForModal}
+          onClose={() => setSelectedRequisitionForModal(null)}
+        />
       )}
     </div>
   );

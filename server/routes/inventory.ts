@@ -9,6 +9,13 @@ inventoryRouter.get('/', (req, res) => {
   res.json(items);
 });
 
+// GET /api/inventory/intelligence - component tracking, stock alerts, expiry alerts
+inventoryRouter.get('/intelligence', (req, res) => {
+  const bankId = req.query.bank_id as string | undefined;
+  const intel = db.getInventoryIntelligence(bankId);
+  res.json(intel);
+});
+
 // POST /api/inventory - add blood inventory unit
 inventoryRouter.post('/', (req, res) => {
   const {
