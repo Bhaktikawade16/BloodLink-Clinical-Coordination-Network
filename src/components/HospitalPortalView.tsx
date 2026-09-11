@@ -8,8 +8,6 @@ import {
 } from '../types';
 import { useBloodLink } from '../context/BloodLinkContext';
 import { BloodLinkVerificationCard } from './BloodLinkVerificationCard';
-import { GoogleAuthButton } from './GoogleAuthButton';
-import { GoogleDetailsBanner } from './GoogleDetailsBanner';
 import {
   Building2,
   AlertCircle,
@@ -234,20 +232,6 @@ export const HospitalPortalView: React.FC = () => {
           {/* SIGN IN */}
           {authView === 'login' && (
             <div className="space-y-4">
-              <GoogleAuthButton
-                mode="login"
-                role="hospital"
-                onGoogleSuccess={handleGoogleSuccess}
-              />
-
-              <div className="relative flex py-1 items-center">
-                <div className="flex-grow border-t border-slate-200"></div>
-                <span className="flex-shrink mx-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  or sign in with institutional credentials
-                </span>
-                <div className="flex-grow border-t border-slate-200"></div>
-              </div>
-
               <form onSubmit={handleLogin} className="space-y-4">
                 {loginError && (
                   <div className="p-3 rounded-lg bg-error-container text-on-error-container text-xs flex items-center gap-2">
@@ -369,27 +353,6 @@ export const HospitalPortalView: React.FC = () => {
           {/* REGISTRATION */}
           {authView === 'register' && (
             <div className="space-y-4">
-              <GoogleAuthButton
-                mode="register"
-                role="hospital"
-                onGoogleSuccess={handleGoogleSuccess}
-              />
-
-              {extractedGoogleDetails && (
-                <GoogleDetailsBanner
-                  details={extractedGoogleDetails}
-                  onDismiss={() => setExtractedGoogleDetails(null)}
-                />
-              )}
-
-              <div className="relative flex py-1 items-center">
-                <div className="flex-grow border-t border-slate-200"></div>
-                <span className="flex-shrink mx-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  or complete institutional registration
-                </span>
-                <div className="flex-grow border-t border-slate-200"></div>
-              </div>
-
               <form onSubmit={handleRegister} className="space-y-4">
                 {regError && (
                   <div className="p-3 rounded-lg bg-error-container text-on-error-container text-xs flex items-center gap-2">

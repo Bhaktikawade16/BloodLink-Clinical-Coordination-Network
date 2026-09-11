@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { BloodGroup, BloodComponent, BloodUnit, RequisitionStatus } from '../types';
 import { useBloodLink } from '../context/BloodLinkContext';
 import { BloodLinkVerificationCard } from './BloodLinkVerificationCard';
-import { GoogleAuthButton } from './GoogleAuthButton';
-import { GoogleDetailsBanner } from './GoogleDetailsBanner';
 import {
   Database,
   Plus,
@@ -221,20 +219,6 @@ export const BloodBankPortalView: React.FC = () => {
           {/* LOGIN */}
           {authView === 'login' && (
             <div className="space-y-4">
-              <GoogleAuthButton
-                mode="login"
-                role="blood_bank"
-                onGoogleSuccess={handleGoogleSuccess}
-              />
-
-              <div className="relative flex py-1 items-center">
-                <div className="flex-grow border-t border-slate-200"></div>
-                <span className="flex-shrink mx-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  or sign in with bank credentials
-                </span>
-                <div className="flex-grow border-t border-slate-200"></div>
-              </div>
-
               <form onSubmit={handleLogin} className="space-y-4">
                 {loginError && (
                   <div className="p-3 rounded-lg bg-error-container text-on-error-container text-xs flex items-center gap-2">
@@ -356,27 +340,6 @@ export const BloodBankPortalView: React.FC = () => {
           {/* REGISTRATION */}
           {authView === 'register' && (
             <div className="space-y-4">
-              <GoogleAuthButton
-                mode="register"
-                role="blood_bank"
-                onGoogleSuccess={handleGoogleSuccess}
-              />
-
-              {extractedGoogleDetails && (
-                <GoogleDetailsBanner
-                  details={extractedGoogleDetails}
-                  onDismiss={() => setExtractedGoogleDetails(null)}
-                />
-              )}
-
-              <div className="relative flex py-1 items-center">
-                <div className="flex-grow border-t border-slate-200"></div>
-                <span className="flex-shrink mx-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                  or complete blood bank registration
-                </span>
-                <div className="flex-grow border-t border-slate-200"></div>
-              </div>
-
               <form onSubmit={handleRegister} className="space-y-4">
                 {regError && (
                   <div className="p-3 rounded-lg bg-error-container text-on-error-container text-xs flex items-center gap-2">
