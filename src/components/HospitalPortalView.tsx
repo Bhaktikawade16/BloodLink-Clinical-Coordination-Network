@@ -8,7 +8,7 @@ import {
 } from '../types';
 import { useBloodLink } from '../context/BloodLinkContext';
 import { BloodLinkVerificationCard } from './BloodLinkVerificationCard';
-main
+
 import {
   Building2,
   AlertCircle,
